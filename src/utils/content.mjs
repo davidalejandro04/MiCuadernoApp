@@ -123,7 +123,7 @@ export function wrapStageHtml(rawHtml, lessonTitle, stageIndex, stageCount) {
     <header class="hero">
       <span class="pill">Etapa ${stageIndex}/${stageCount}</span>
       <h1>${lessonTitle}</h1>
-      <p>Lectura adaptada para la app Electron con render matemático local.</p>
+
     </header>
     <section class="content">${inner}</section>
   </main>
