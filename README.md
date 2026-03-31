@@ -1,6 +1,6 @@
 # Mi cuaderno — Documentación técnica
 
-> **Aplicación de escritorio Electron + Ollama** para tutorías matemáticas adaptativas con un motor multi-agente CLASS-A, recuperación RAG y persistencia local completa. Diseñada para alumnos de primaria/secundaria.
+> **Aplicación de escritorio Electron + Ollama** para tutorías matemáticas adaptativas con un motor multi-agente, recuperación RAG y persistencia local completa. Diseñada para alumnos de primaria.
 
 ![Portada](assets/readme.png)
 
