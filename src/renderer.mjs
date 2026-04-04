@@ -106,7 +106,8 @@ const pageMeta = {
 const DEFAULT_SETTINGS = {
   responseMode: "coach",
   theme: "light",
-  agentMode: true
+  agentMode: true,
+  ggufModel: "gemma-3-4b-it-q4_k_m.gguf"
 };
 
 const PRACTICE_KIND_LABELS = {
@@ -170,6 +171,7 @@ const state = {
   },
   settingsOpen: false,
   settingsDraft: null,
+  ggufModels: [],
   profileDraft: migrateProfile(defaultProfile),
   onboardingStep: 0,
   selectedText: "",
@@ -532,6 +534,7 @@ async function bootstrap() {
   state.profile = migrateProfile(payload.profile || defaultProfile);
   state.llm = payload.llm || state.llm;
   state.settings = normalizeSettings(payload.settings || {});
+  state.ggufModels = payload.ggufModels || [];
   state.machineId = payload.machineId || "";
   state.dataPath = payload.dataPath || "";
   state.profileDraft = migrateProfile(state.profile);
@@ -568,7 +571,9 @@ function getProfileAnimal() {
 }
 
 function currentModelSupportsVision() {
-  return true; // gemma4:e2b supports vision natively
+  // Vision is supported when an mmproj file is paired with the model by the server
+  const model = (state.settings.ggufModel || "").toLowerCase();
+  return model.includes("gemma");
 }
 
 function resetLessonAssistState() {
@@ -2167,8 +2172,19 @@ function renderSettingsModal() {
           <div class="card stack">
             <div>
               <strong>Modelo de IA</strong>
-              <p class="muted">gemma4:e2b (local, via llama.cpp)</p>
+              <p class="muted">Local via llama.cpp</p>
             </div>
+            <label>
+              <span class="muted">Archivo GGUF</span>
+              <select data-settings-field="ggufModel">
+                ${(state.ggufModels.length
+                  ? state.ggufModels
+                  : [draft.ggufModel]
+                ).map(m => `
+                  <option value="${escapeHtml(m)}" ${m === draft.ggufModel ? "selected" : ""}>${escapeHtml(m)}</option>
+                `).join("")}
+              </select>
+            </label>
             <p class="muted">${escapeHtml(state.llm.message)}</p>
           </div>
           <label>
@@ -3532,6 +3548,10 @@ Sé conciso pero preciso. Usa bullet points. NO uses markdown complejo, solo bul
   if (action === "open-settings") {
     state.settingsDraft = cloneSettings(state.settings);
     state.settingsOpen = true;
+    window.bridge.listModels().then(models => {
+      state.ggufModels = models;
+      render();
+    });
   }
 
   if (action === "close-settings") {
@@ -3574,11 +3594,27 @@ Sé conciso pero preciso. Usa bullet points. NO uses markdown complejo, solo bul
 
   if (action === "save-settings" && state.settingsDraft) {
     const nextSettings = normalizeSettings(state.settingsDraft);
+    const modelChanged = nextSettings.ggufModel !== state.settings.ggufModel;
+
     state.settingsOpen = false;
     state.settingsDraft = null;
     state.settings = nextSettings;
     state.practiceMode = state.settings.responseMode;
     await window.bridge.saveSettings(state.settings);
+
+    if (modelChanged) {
+      openLoadingPanel({
+        title: "Cambiando modelo",
+        detail: `Cargando ${nextSettings.ggufModel}...`
+      });
+      try {
+        const result = await window.bridge.applyModel(nextSettings.ggufModel);
+        state.llm = result;
+      } catch (err) {
+        state.llm = { ok: false, message: `Error: ${err.message}` };
+      }
+      closeLoadingPanel();
+    }
   }
 
   if (action === "toggle-crop-mode") {

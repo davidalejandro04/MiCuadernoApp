@@ -1,4 +1,4 @@
-export const MODEL_NAME = "gemma4:e2b";
+// Model is selected at runtime via settings.ggufModel (see electron/main.cjs).
 
 export const TOKEN_BUDGETS = {
   router: { maxTokens: 60 },

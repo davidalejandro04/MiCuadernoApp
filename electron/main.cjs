@@ -11,6 +11,8 @@ let llamaServerProc = null;
 const LLM_PORT = 8080;
 const LLM_BASE = `http://127.0.0.1:${LLM_PORT}`;
 
+let activeGguf = "gemma-3-4b-it-q4_k_m.gguf";
+
 function waitForServer(timeoutMs = 30000) {
   const start = Date.now();
   return new Promise((resolve, reject) => {
@@ -52,12 +54,11 @@ const DEFAULT_PROFILE = {
   interactionLog: []
 };
 
-const REQUIRED_MODEL = "gemma4:e2b";
-
 const DEFAULT_SETTINGS = {
   responseMode: "coach",
   theme: "light",
-  agentMode: true
+  agentMode: true,
+  ggufModel: "gemma-3-4b-it-q4_k_m.gguf"
 };
 
 const activeChatControllers = new Map();
@@ -152,6 +153,76 @@ async function writeJson(filePath, data) {
   return data;
 }
 
+async function scanGgufModels() {
+  const modelsDir = path.join(ROOT_DIR, "models");
+  try {
+    const files = await fs.readdir(modelsDir);
+    return files.filter(f => f.endsWith(".gguf") && !f.toLowerCase().startsWith("mmproj"));
+  } catch {
+    return [];
+  }
+}
+
+function findMmprojFor(ggufFile) {
+  const modelsDir = path.join(ROOT_DIR, "models");
+  try {
+    const files = fsSync.readdirSync(modelsDir);
+    const mmprojFiles = files.filter(f => f.toLowerCase().startsWith("mmproj") && f.endsWith(".gguf"));
+    // Try to match by model family prefix (e.g. "gemma-3-4b" or "gemma-4-E2B")
+    const parts = ggufFile.replace(/\.gguf$/, "").split("-");
+    for (let len = Math.min(parts.length, 4); len >= 2; len--) {
+      const prefix = parts.slice(0, len).join("-").toLowerCase();
+      const match = mmprojFiles.find(f => f.toLowerCase().includes(prefix));
+      if (match) return match;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function startLlamaServer(ggufFile) {
+  if (llamaServerProc) {
+    llamaServerProc.kill();
+    llamaServerProc = null;
+    await new Promise(r => setTimeout(r, 500));
+  }
+
+  const exePath = path.join(ROOT_DIR, "bin", "llama-server.exe");
+  const modelPath = path.join(ROOT_DIR, "models", ggufFile);
+
+  if (!fsSync.existsSync(modelPath)) {
+    throw new Error(`Archivo de modelo no encontrado: ${ggufFile}`);
+  }
+
+  const args = [
+    "-m", modelPath,
+    "--port", String(LLM_PORT),
+    "-c", "2048",
+    "-ngl", "0",
+    "--no-mmap",
+    "-np", "1",
+    "-b", "256",
+    "-ub", "256"
+  ];
+
+  const mmprojFile = findMmprojFor(ggufFile);
+  if (mmprojFile) {
+    const mmprojPath = path.join(ROOT_DIR, "models", mmprojFile);
+    if (fsSync.existsSync(mmprojPath)) {
+      args.push("--mmproj", mmprojPath);
+    }
+  }
+
+  llamaServerProc = spawn(exePath, args);
+  llamaServerProc.stdout.on("data", d => process.stdout.write(`[llama.cpp] ${d}`));
+  llamaServerProc.stderr.on("data", d => process.stderr.write(`[llama.cpp] ${d}`));
+  llamaServerProc.on("close", code => console.log(`llama.cpp exited with code ${code}`));
+
+  await waitForServer(45000);
+  activeGguf = ggufFile;
+}
+
 /**
  * Normalize messages for llama.cpp OpenAI-compatible API.
  * Converts Ollama-style image messages ({content, images: [base64]})
@@ -204,7 +275,7 @@ async function chatWithLlm({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: REQUIRED_MODEL,
+        model: activeGguf,
         stream: true,
         messages: normalizedMessages,
         max_tokens: numPredict,
@@ -292,37 +363,21 @@ async function captureRegion(event, rect) {
 async function bootstrap() {
   ensureMachineId();
 
+  const settings = await readJson(userFile("settings.json"), DEFAULT_SETTINGS);
+  const selectedGguf = settings.ggufModel || DEFAULT_SETTINGS.ggufModel;
+
+  let llmStatus;
   if (!llamaServerProc) {
-    const exePath = path.join(ROOT_DIR, "bin", "llama-server.exe");
-    const modelPath = path.join(ROOT_DIR, "models", "gemma-3-4b-it-q4_k_m.gguf");
-    const mmprojPath = path.join(ROOT_DIR, "models", "mmproj-gemma-3-4b-it-f16.gguf");
-
-
-    const args = [
-      "-m", modelPath,
-      "--port", String(LLM_PORT),
-      "-c", "2048",
-      "-ngl", "0",
-      "--no-mmap",
-      "-np", "1",
-      "-b", "256",
-      "-ub", "256"
-    ];
-    if (fsSync.existsSync(mmprojPath)) {
-      args.push("--mmproj", mmprojPath);
+    try {
+      await startLlamaServer(selectedGguf);
+      console.log("[llama.cpp] Server is ready.");
+      llmStatus = { ok: true, message: `Modelo ${selectedGguf} listo.` };
+    } catch (err) {
+      console.error("[llama.cpp] Server failed to start:", err.message);
+      llmStatus = { ok: false, message: `Error: ${err.message}` };
     }
-    llamaServerProc = spawn(exePath, args);
-    llamaServerProc.stdout.on("data", d => process.stdout.write(`[llama.cpp] ${d}`));
-    llamaServerProc.stderr.on("data", d => process.stderr.write(`[llama.cpp] ${d}`));
-    llamaServerProc.on("close", code => console.log(`llama.cpp exited with code ${code}`));
-  }
-
-  // Wait for the server to be healthy before returning bootstrap
-  try {
-    await waitForServer(45000);
-    console.log("[llama.cpp] Server is ready.");
-  } catch (err) {
-    console.error("[llama.cpp] Server failed to start:", err.message);
+  } else {
+    llmStatus = { ok: true, message: `Modelo ${activeGguf} listo.` };
   }
 
   const { loadLessonCatalogFromDirectory } = await getLessonCatalogModule();
@@ -339,11 +394,12 @@ async function bootstrap() {
   }
 
   const profile = await readJson(userFile("profile.json"), DEFAULT_PROFILE);
-  const settings = await readJson(userFile("settings.json"), DEFAULT_SETTINGS);
+  const ggufModels = await scanGgufModels();
 
   return {
     lessons, profile, settings,
-    llm: { ok: true, message: "Modelo gemma4:e2b listo." },
+    llm: llmStatus,
+    ggufModels,
     machineId,
     dataPath: app.getPath("userData")
   };
@@ -406,6 +462,15 @@ app.whenReady().then(() => {
     return chatWithLlm({ ...payload, webContents: event.sender });
   });
   ipcMain.handle("llm:cancel-chat", cancelLlmChat);
+  ipcMain.handle("llm:list-models", async () => scanGgufModels());
+  ipcMain.handle("llm:apply-model", async (_event, ggufFile) => {
+    try {
+      await startLlamaServer(ggufFile);
+      return { ok: true, message: `Modelo ${ggufFile} listo.` };
+    } catch (err) {
+      return { ok: false, message: `Error: ${err.message}` };
+    }
+  });
   ipcMain.handle("rag:search", async (_event, query) => {
     if (!ragRetriever) return { context: "", sources: [] };
     return ragRetriever.retrieve(String(query || ""));

@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld("bridge", {
   saveSettings: (settings) => ipcRenderer.invoke("settings:save", settings),
   chat: (payload) => ipcRenderer.invoke("llm:chat", payload),
   cancelChat: (requestId) => ipcRenderer.invoke("llm:cancel-chat", requestId),
+  listModels: () => ipcRenderer.invoke("llm:list-models"),
+  applyModel: (ggufFile) => ipcRenderer.invoke("llm:apply-model", ggufFile),
   onChatToken: (callback) => {
     const handler = (_event, data) => callback(data);
     ipcRenderer.on("llm:chat-token", handler);
