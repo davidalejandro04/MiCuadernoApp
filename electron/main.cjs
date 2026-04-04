@@ -199,7 +199,7 @@ async function startLlamaServer(ggufFile) {
   const args = [
     "-m", modelPath,
     "--port", String(LLM_PORT),
-    "-c", "1024",
+    "-c", "2048",
     "-ngl", "999",
     "--no-mmap",
     "-np", "1",

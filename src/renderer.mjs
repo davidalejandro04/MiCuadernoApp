@@ -201,7 +201,9 @@ const state = {
   studentAnalysis: {
     open: false,
     busy: false,
-    text: ""
+    text: "",
+    metrics: null,
+    sections: null
   },
   deleteProfileConfirm: false,
   bookPage: 0,
@@ -282,6 +284,28 @@ function stripCodeFence(text = "") {
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/\s*```$/i, "")
     .trim();
+}
+
+function repairTruncatedJson(text = "") {
+  let s = String(text).trim();
+  if (!s.startsWith("{")) return s;
+  const openBraces = (s.match(/{/g) || []).length;
+  const closeBraces = (s.match(/}/g) || []).length;
+  if (closeBraces >= openBraces) return s;
+  const lastQuote = s.lastIndexOf('"');
+  if (lastQuote > 0 && s[lastQuote - 1] !== "\\") {
+    const afterQuote = s.slice(lastQuote + 1).trim();
+    if (!afterQuote || afterQuote === "," || afterQuote === "") {
+      s = s.slice(0, lastQuote + 1);
+    }
+  }
+  if (!s.endsWith('"')) {
+    s += '"';
+  }
+  for (let i = closeBraces; i < openBraces; i++) {
+    s += "}";
+  }
+  return s;
 }
 
 function stripAccents(value = "") {
@@ -1883,24 +1907,68 @@ function renderActionGraph(decisionMap) {
 
 function renderStudentAnalysisModal() {
   if (!state.studentAnalysis.open) return "";
+
+  const { busy, sections, metrics, text } = state.studentAnalysis;
+
+  let bodyHtml;
+  if (busy) {
+    bodyHtml = `<div class="empty-state" style="padding:40px 0;">
+      <div class="typing"><span></span><span></span><span></span></div>
+      <p>Analizando interacciones del estudiante...</p>
+    </div>`;
+  } else {
+    const m = metrics || tutorMetrics();
+    const metricsCard = `
+      <div class="sa-card sa-card-metrics">
+        <h4 class="sa-card-title">Resumen de actividad</h4>
+        <div class="sa-metrics-grid">
+          <div class="sa-metric"><span class="sa-metric-value">${m.sessions}</span><span class="sa-metric-label">Sesiones</span></div>
+          <div class="sa-metric"><span class="sa-metric-value">${m.correctAttempts}</span><span class="sa-metric-label">Correctos</span></div>
+          <div class="sa-metric"><span class="sa-metric-value">${m.incorrectAttempts}</span><span class="sa-metric-label">Incorrectos</span></div>
+          <div class="sa-metric"><span class="sa-metric-value">${m.stepsCompleted}</span><span class="sa-metric-label">Pasos</span></div>
+          <div class="sa-metric"><span class="sa-metric-value">${m.hintsShown}</span><span class="sa-metric-label">Pistas</span></div>
+          <div class="sa-metric"><span class="sa-metric-value">${m.feedbackUp}/${m.feedbackDown}</span><span class="sa-metric-label">Feedback +/-</span></div>
+        </div>
+      </div>`;
+
+    const sectionDefs = [
+      { key: "dificultades", title: "Dificultades detectadas", icon: "!" },
+      { key: "fortalezas",   title: "Fortalezas",             icon: "+" },
+      { key: "persistencia", title: "Persistencia",           icon: "#" },
+      { key: "recomendaciones", title: "Recomendaciones",     icon: ">" }
+    ];
+
+    let sectionCards;
+    if (sections) {
+      sectionCards = sectionDefs
+        .filter((d) => sections[d.key])
+        .map((d) => `
+          <div class="sa-card sa-card-${d.key}">
+            <div class="sa-card-icon">${d.icon}</div>
+            <h4 class="sa-card-title">${d.title}</h4>
+            <p class="sa-card-body">${formatRichText(String(sections[d.key]))}</p>
+          </div>
+        `).join("");
+    } else {
+      sectionCards = `<div class="sa-card"><p class="sa-card-body">${formatRichText(text)}</p></div>`;
+    }
+
+    bodyHtml = `${metricsCard}<div class="sa-cards-grid">${sectionCards}</div>`;
+  }
+
   return `
     <div class="modal flashcard-modal">
-      <div class="modal-card flashcard-modal-card" style="max-width:740px;">
+      <div class="modal-card flashcard-modal-card" style="max-width:780px;">
         <div class="modal-header">
           <div>
             <span class="tag">BETA</span>
-            <h3 style="margin:8px 0 4px;">Cómo vas aprendiendo</h3>
-            <p class="muted">Generado con IA a partir de tus sesiones de práctica.</p>
+            <h3 style="margin:8px 0 4px;">Como vas aprendiendo</h3>
+            <p class="muted">Generado con IA a partir de tus sesiones de practica.</p>
           </div>
           <button class="ghost-btn" data-action="close-student-analysis">Cerrar</button>
         </div>
-        <div style="max-height:62vh;overflow-y:auto;padding:0 4px;">
-          ${state.studentAnalysis.busy
-            ? `<div class="empty-state" style="padding:40px 0;">
-                <span style="font-size:28px;">🔍</span>
-                <p>Analizando interacciones del estudiante...</p>
-              </div>`
-            : `<div class="student-analysis-text">${formatRichText(state.studentAnalysis.text)}</div>`}
+        <div style="max-height:66vh;overflow-y:auto;padding:0 4px;">
+          ${bodyHtml}
         </div>
       </div>
     </div>
@@ -3611,35 +3679,50 @@ async function handleClick(event) {
     state.studentAnalysis = { open: true, busy: true, text: "" };
     render();
     try {
-      const log = (state.profile.interactionLog || []).slice(-5);
+      const log = (state.profile.interactionLog || []).slice(-8);
       const sessions = (state.profile.tutorSessions || []).slice(-5);
       const metrics = tutorMetrics();
-      const truncate = (s, max = 40) => {
+      const truncate = (s, max = 50) => {
         const t = String(s || "").slice(0, max);
         return t.length < String(s || "").length ? t + "..." : t;
       };
-      const systemPrompt = `Analista pedagogico. Analiza datos de un estudiante de matematicas. Responde en español con bullets: dificultades, fortalezas, persistencia, recomendaciones.`;
+      const systemPrompt = [
+        `Eres un analista pedagogico. Responde SOLO con un JSON valido con estas 4 claves:`,
+        `{"dificultades":"...","fortalezas":"...","persistencia":"...","recomendaciones":"..."}`,
+        `REGLAS ESTRICTAS:`,
+        `- Cada valor: MAXIMO 2 oraciones cortas.`,
+        `- Cita temas concretos del estudiante como evidencia (ej: "en ecuaciones lineales" no "en algunos temas").`,
+        `- En recomendaciones: da 2 consejos especificos y accionables (ej: "practica despejar variables con ecuaciones de un paso").`,
+        `- NO uses markdown, latex ni formato especial dentro del JSON.`,
+        `- Asegurate de cerrar el JSON correctamente.`
+      ].join("\n");
       const userPrompt = [
-        `${state.profile.name || "Sin nombre"} (${state.profile.grade || "sin grado"})`,
+        `${state.profile.name || "Sin nombre"}, grado ${state.profile.grade || "?"}`,
         `Ses:${metrics.sessions} OK:${metrics.correctAttempts} Mal:${metrics.incorrectAttempts} Pistas:${metrics.hintsShown} +1:${metrics.feedbackUp} -1:${metrics.feedbackDown}`,
-        ...log.map((e, i) => `${i + 1}. "${truncate(e.question)}" ${e.actionTaken} fb:${e.feedback || "-"}`),
-        ...sessions.map((s) => `[${s.kind}] ${truncate(s.topic, 30)} (${(s.events || []).length}ev)`)
+        ...log.map((e, i) => `${i + 1}."${truncate(e.question)}" ${e.actionTaken} ${e.result || ""} fb:${e.feedback || "-"}`),
+        ...sessions.map((s) => `[${s.kind}] ${truncate(s.topic, 35)} ${(s.events || []).length}ev ${s.status}`)
       ].join("\n");
 
-      const text = await askWithLlm([
+      const raw = await askWithLlm([
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt }
-      ], { maxTokens: 300, temperature: 0.3 });
+      ], { maxTokens: 512, temperature: 0.3, forceJson: true });
 
-      state.studentAnalysis = { open: true, busy: false, text: String(text || "No se pudo generar el analisis.") };
+      const sections = safeJsonParse(stripCodeFence(raw), null)
+        || safeJsonParse(repairTruncatedJson(stripCodeFence(raw)), null);
+      state.studentAnalysis = {
+        open: true, busy: false, text: raw,
+        metrics,
+        sections: sections && typeof sections === "object" ? sections : null
+      };
     } catch (err) {
-      state.studentAnalysis = { open: true, busy: false, text: `Error al generar el analisis: ${err.message}` };
+      state.studentAnalysis = { open: true, busy: false, text: `Error al generar el analisis: ${err.message}`, metrics, sections: null };
     }
     scheduleRender();
   }
 
   if (action === "close-student-analysis") {
-    state.studentAnalysis = { open: false, busy: false, text: "" };
+    state.studentAnalysis = { open: false, busy: false, text: "", metrics: null, sections: null };
   }
 
   if (action === "edit-profile") {

@@ -2219,11 +2219,97 @@ select {
 }
 
 /* ─── Student analysis modal ────────────────────────────────────────────── */
-.student-analysis-text {
-  padding: 4px 0 12px;
-  line-height: 1.7;
-  font-size: 14px;
-  white-space: pre-wrap;
+
+/* Metrics summary card */
+.sa-card-metrics {
+  margin-bottom: 14px;
+}
+
+.sa-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.sa-metric {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 10px 6px;
+  border-radius: 10px;
+  background: var(--surface, rgba(255,255,255,0.04));
+  border: 1px solid var(--line);
+}
+
+.sa-metric-value {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--text-primary, #e8ecef);
+}
+
+.sa-metric-label {
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Section cards grid */
+.sa-cards-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 600px) {
+  .sa-cards-grid { grid-template-columns: 1fr; }
+  .sa-metrics-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+.sa-card {
+  padding: 16px;
+  border-radius: 12px;
+  border: 1.5px solid var(--line);
+  background: var(--surface, rgba(255,255,255,0.03));
+  position: relative;
+  overflow: hidden;
+}
+
+.sa-card-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  font-size: 0.85rem;
+  margin-bottom: 8px;
+  color: #fff;
+}
+
+.sa-card-dificultades .sa-card-icon { background: #e05252; }
+.sa-card-fortalezas   .sa-card-icon { background: #4ec900; }
+.sa-card-persistencia .sa-card-icon { background: #3b8beb; }
+.sa-card-recomendaciones .sa-card-icon { background: #e8a820; }
+
+.sa-card-dificultades { border-color: rgba(224, 82, 82, 0.25); }
+.sa-card-fortalezas   { border-color: rgba(78, 201, 0, 0.25); }
+.sa-card-persistencia { border-color: rgba(59, 139, 235, 0.25); }
+.sa-card-recomendaciones { border-color: rgba(232, 168, 32, 0.25); }
+
+.sa-card-title {
+  margin: 0 0 6px;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.sa-card-body {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: var(--text-secondary, #8a9ba8);
 }
 
 .concept-metric-grid {
