@@ -203,7 +203,9 @@ async function startLlamaServer(ggufFile) {
     "--no-mmap",
     "-np", "1",
     "-b", "256",
-    "-ub", "256"
+    "-ub", "256",
+    "--reasoning", "off",
+    "--reasoning-format", "none"
   ];
 
   const mmprojFile = findMmprojFor(ggufFile);
@@ -308,7 +310,8 @@ async function chatWithLlm({
         if (dataStr === "[DONE]") break;
         try {
           const data = JSON.parse(dataStr);
-          const token = data.choices?.[0]?.delta?.content || "";
+          const delta = data.choices?.[0]?.delta;
+          const token = delta?.content || delta?.reasoning_content || "";
           if (token) {
             fullContent += token;
             if (webContents && !webContents.isDestroyed()) {
