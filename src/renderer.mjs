@@ -32,6 +32,7 @@ import {
   buildStudyDeckUserPrompt,
   buildVisualFlashcardUserPrompt,
   contextFlashcardPrompt,
+  visualFlashcardPrompt,
   exerciseTutorPrompt,
   exerciseTracePrompt,
   kidMathGatePrompt,
@@ -107,7 +108,7 @@ const DEFAULT_SETTINGS = {
   responseMode: "coach",
   theme: "light",
   agentMode: true,
-  ggufModel: "gemma-3-4b-it-q4_k_m.gguf"
+  ggufModel: "gemma-4-E2B-it-Q4_K_M.gguf"
 };
 
 const PRACTICE_KIND_LABELS = {
@@ -568,12 +569,6 @@ function getProfileAnimal() {
   return state.profile?.avatar && ANIMAL_AVATARS[state.profile.avatar]
     ? state.profile.avatar
     : "bear";
-}
-
-function currentModelSupportsVision() {
-  // Vision is supported when an mmproj file is paired with the model by the server
-  const model = (state.settings.ggufModel || "").toLowerCase();
-  return model.includes("gemma");
 }
 
 function resetLessonAssistState() {
@@ -3136,7 +3131,7 @@ async function runImageExplanation() {
     if (isRequestCancelled(requestId)) return;
 
     const answer = await askWithLlm([
-      { role: "system", content: contextFlashcardPrompt },
+      { role: "system", content: visualFlashcardPrompt },
       {
         role: "user",
         content: buildVisualFlashcardUserPrompt(),

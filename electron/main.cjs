@@ -11,14 +11,14 @@ let llamaServerProc = null;
 const LLM_PORT = 8080;
 const LLM_BASE = `http://127.0.0.1:${LLM_PORT}`;
 
-let activeGguf = "gemma-3-4b-it-q4_k_m.gguf";
+let activeGguf = "gemma-4-E2B-it-Q4_K_M.gguf";
 
 function waitForServer(timeoutMs = 30000) {
   const start = Date.now();
   return new Promise((resolve, reject) => {
     const attempt = () => {
       fetch(`${LLM_BASE}/health`)
-        .then(r => { if (r.ok || r.status === 200) resolve(); else throw new Error(); })
+        .then(r => { if (r.ok) resolve(); else throw new Error(); })
         .catch(() => {
           if (Date.now() - start > timeoutMs) reject(new Error("llama-server did not start in time"));
           else setTimeout(attempt, 500);
@@ -58,7 +58,7 @@ const DEFAULT_SETTINGS = {
   responseMode: "coach",
   theme: "light",
   agentMode: true,
-  ggufModel: "gemma-3-4b-it-q4_k_m.gguf"
+  ggufModel: "gemma-4-E2B-it-Q4_K_M.gguf"
 };
 
 const activeChatControllers = new Map();
@@ -183,9 +183,10 @@ function findMmprojFor(ggufFile) {
 
 async function startLlamaServer(ggufFile) {
   if (llamaServerProc) {
-    llamaServerProc.kill();
+    const oldProc = llamaServerProc;
     llamaServerProc = null;
-    await new Promise(r => setTimeout(r, 500));
+    oldProc.kill();
+    await new Promise(r => { oldProc.on("close", r); setTimeout(r, 3000); });
   }
 
   const exePath = path.join(ROOT_DIR, "bin", "llama-server.exe");
@@ -199,7 +200,7 @@ async function startLlamaServer(ggufFile) {
     "-m", modelPath,
     "--port", String(LLM_PORT),
     "-c", "2048",
-    "-ngl", "0",
+    "-ngl", "999",
     "--no-mmap",
     "-np", "1",
     "-b", "256",
@@ -210,10 +211,7 @@ async function startLlamaServer(ggufFile) {
 
   const mmprojFile = findMmprojFor(ggufFile);
   if (mmprojFile) {
-    const mmprojPath = path.join(ROOT_DIR, "models", mmprojFile);
-    if (fsSync.existsSync(mmprojPath)) {
-      args.push("--mmproj", mmprojPath);
-    }
+    args.push("--mmproj", path.join(ROOT_DIR, "models", mmprojFile));
   }
 
   llamaServerProc = spawn(exePath, args);
@@ -231,6 +229,7 @@ async function startLlamaServer(ggufFile) {
  * to OpenAI multimodal format ({content: [{type:"text",...},{type:"image_url",...}]}).
  */
 function normalizeMessages(messages) {
+  if (!messages.some(m => Array.isArray(m.images) && m.images.length > 0)) return messages;
   return messages.map((msg) => {
     if (!Array.isArray(msg.images) || msg.images.length === 0) return msg;
     const parts = [];
@@ -294,9 +293,10 @@ async function chatWithLlm({
     const reader = response.body.getReader();
     const decoder = new TextDecoder("utf-8");
     let buffer = "";
-    let fullContent = "";
+    const tokens = [];
+    let streamDone = false;
 
-    while (true) {
+    while (!streamDone) {
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
@@ -306,14 +306,14 @@ async function chatWithLlm({
 
       for (const line of lines) {
         if (!line.trim() || !line.startsWith("data: ")) continue;
-        const dataStr = line.replace(/^data: /, "");
-        if (dataStr === "[DONE]") break;
+        const dataStr = line.slice(6);
+        if (dataStr === "[DONE]") { streamDone = true; break; }
         try {
           const data = JSON.parse(dataStr);
           const delta = data.choices?.[0]?.delta;
           const token = delta?.content || delta?.reasoning_content || "";
           if (token) {
-            fullContent += token;
+            tokens.push(token);
             if (webContents && !webContents.isDestroyed()) {
               webContents.send("llm:chat-token", { requestId: safeRequestId, token });
             }
@@ -322,7 +322,7 @@ async function chatWithLlm({
       }
     }
 
-    return fullContent;
+    return tokens.join("");
   } catch (error) {
     if (error?.name === "AbortError") {
       const abortError = new Error("Solicitud cancelada.");
@@ -369,22 +369,28 @@ async function bootstrap() {
   const settings = await readJson(userFile("settings.json"), DEFAULT_SETTINGS);
   const selectedGguf = settings.ggufModel || DEFAULT_SETTINGS.ggufModel;
 
-  let llmStatus;
-  if (!llamaServerProc) {
+  // Start LLM server in parallel with lesson/profile loading
+  const llmPromise = (async () => {
+    if (llamaServerProc) return { ok: true, message: `Modelo ${activeGguf} listo.` };
     try {
       await startLlamaServer(selectedGguf);
       console.log("[llama.cpp] Server is ready.");
-      llmStatus = { ok: true, message: `Modelo ${selectedGguf} listo.` };
+      return { ok: true, message: `Modelo ${selectedGguf} listo.` };
     } catch (err) {
       console.error("[llama.cpp] Server failed to start:", err.message);
-      llmStatus = { ok: false, message: `Error: ${err.message}` };
+      return { ok: false, message: `Error: ${err.message}` };
     }
-  } else {
-    llmStatus = { ok: true, message: `Modelo ${activeGguf} listo.` };
-  }
+  })();
 
-  const { loadLessonCatalogFromDirectory } = await getLessonCatalogModule();
-  const lessons = await loadLessonCatalogFromDirectory(LESSON_CATALOG_DIR);
+  const lessonsPromise = getLessonCatalogModule()
+    .then(({ loadLessonCatalogFromDirectory }) => loadLessonCatalogFromDirectory(LESSON_CATALOG_DIR));
+
+  const [llmStatus, lessons, profile, ggufModels] = await Promise.all([
+    llmPromise,
+    lessonsPromise,
+    readJson(userFile("profile.json"), DEFAULT_PROFILE),
+    scanGgufModels()
+  ]);
 
   try {
     const { chunkLessonCatalog, RAGIndex, Retriever } = await getRAGModule();
@@ -395,9 +401,6 @@ async function bootstrap() {
   } catch (err) {
     console.warn("[rag] No se pudo construir el indice RAG:", err.message);
   }
-
-  const profile = await readJson(userFile("profile.json"), DEFAULT_PROFILE);
-  const ggufModels = await scanGgufModels();
 
   return {
     lessons, profile, settings,

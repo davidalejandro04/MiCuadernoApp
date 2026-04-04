@@ -67,6 +67,14 @@ export function buildContextFlashcardUserPrompt(selection) {
   ].join(" ");
 }
 
+export const visualFlashcardPrompt =
+  "Eres un tutor visual de matematicas que convierte recortes de lecciones en tarjetas de ayuda. " +
+  "Recibes una imagen recortada de una leccion. " +
+  "Responde solo en JSON valido con esta forma exacta: " +
+  '{"topic":"...","cards":[{"title":"...","body":"..."},{"title":"...","body":"..."},{"title":"...","body":"..."}]} ' +
+  "Genera exactamente 3 tarjetas: concepto general, ejemplo guiado y relacion con lo observado en la imagen. " +
+  "No uses markdown ni bloques de codigo.";
+
 export function buildVisualFlashcardUserPrompt() {
   return [
     "Analiza el recorte visual de una leccion de matematicas.",

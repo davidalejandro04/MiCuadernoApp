@@ -9,26 +9,16 @@ export { createTutorState, tutorStateToSolution };
 
 const TURN_TYPE_TO_RESULT = {
   correct: "correct",
-  needs_next_subproblem: "correct",
   incorrect: "incorrect",
-  off_topic: "incorrect",
   partial: "ambiguous",
-  unclear: "ambiguous",
-  student_inquiry: "ambiguous",
-  continue: "ambiguous"
+  unclear: "ambiguous"
 };
 
 const ACTION_TO_DECISIONS = {
   confirm_and_advance: ["b1", "b2", "g2"],
   give_hint_1: ["a3", "d1"],
-  give_hint_2: ["a3", "c1"],
-  give_hint_3: ["a3", "c2"],
   corrective_feedback: ["a1", "a2"],
-  give_solution: ["a2", "c2", "g1"],
-  ask_subquestion: ["b2", "c3"],
-  clarify_request: ["d1", "d2"],
-  redirect: ["h"],
-  motivate: ["b2"]
+  give_solution: ["a2", "c2", "g1"]
 };
 
 export async function runTutorPipeline(question, sessionId, { profile, askFn }) {
@@ -42,10 +32,9 @@ export async function runTutorPipeline(question, sessionId, { profile, askFn }) 
     return { isOffTopic: true, route: routerResult.route, routerResult };
   }
 
-  // 2. Learner state from profile — no LLM needed.
   const learnerResult = computeLearnerState(profile, 0);
 
-  // 3. Scaffolding Planner Agent — decompose question into CLASS-style plan
+  // Scaffolding Planner Agent — decompose question into CLASS-style plan
   const plannerResult = await scaffoldingPlannerAgent(
     { question, learnerModel: learnerResult },
     { askFn, ...TOKEN_BUDGETS.scaffoldingPlanner }
@@ -72,7 +61,6 @@ export async function runTutorPipeline(question, sessionId, { profile, askFn }) 
   };
 }
 
-// Compute learner state from profile data — no LLM call needed for simple counts.
 function computeLearnerState(profile, retryCount) {
   const openStruggles = profile?.struggleSignals?.filter((s) => s.status === "open").length || 0;
   const knownCount = profile?.conceptProgress?.filter((c) => c.status === "known").length || 0;
@@ -97,10 +85,8 @@ export async function runTurnPipeline(tutorState, { step, answer, retryCount = 0
     common_misconceptions: step.misconceptions || []
   };
 
-  // Learner state computed in JS — no LLM call.
   const learnerResult = computeLearnerState(profile, retryCount);
 
-  // Single LLM call: evaluate answer + decide action + generate response.
   const turnResult = await turnAgent(
     { studentMessage: answer, currentSubproblem, retryCount, frustrationRisk: learnerResult.frustration_risk },
     { askFn, ...TOKEN_BUDGETS.turn }
@@ -142,8 +128,6 @@ export async function runTurnPipeline(tutorState, { step, answer, retryCount = 0
     message: finalMessage,
     decisions,
     decision,
-    learnerResult,
-    verification: { approved: true, issues: [], required_rewrite: false },
     updatedTutorState
   };
 }
