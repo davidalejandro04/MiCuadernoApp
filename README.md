@@ -29,7 +29,8 @@ npm install
 # 2. Ollama debe estar corriendo con al menos un modelo
 ollama serve
 ollama pull qwen3:0.6b   # recomendado: modelo rápido para el router
-ollama pull gemma3:4b    # recomendado: modelo tutor con razonamiento
+ollama pull gemma4:e2b   # recomendado: modelo tutor con razonamiento
+ollama pull phi4-mini:3.8b # opcional: modelo ligero
 
 # 3. Lanzar la app
 npm run dev
@@ -472,7 +473,7 @@ classDiagram
 
 Los modelos por agente se configuran en **Ajustes → Modo avanzado**:
 - **Modelo rápido** (router, verifier): recomendado `qwen3:0.6b`
-- **Modelo tutor** (planner, pedagogical, response): recomendado `gemma3:4b`
+- **Modelo tutor** (planner, pedagogical, response): recomendado `gemma4:e2b` (opcional: `phi4-mini:3.8b`)
 
 ---
 
@@ -566,19 +567,19 @@ sequenceDiagram
 
 ### Modelos fine-tuned (checkpoints)
 
-Los directorios `Qwen3-0.6B-sft-dpo/` y `gemma-3-1b-it-sft-dpo/` contienen modelos entrenados con SFT + DPO en formato HuggingFace. **No están activos en la app actual** (que usa Ollama). Son artefactos del proceso de entrenamiento:
+Los directorios `Qwen3-0.6B-sft-dpo/` y `gemma-4-e2b-it-sft-dpo/` contienen modelos entrenados con SFT + DPO en formato HuggingFace. **No están activos en la app actual** (que usa Ollama). Son artefactos del proceso de entrenamiento:
 
 ```mermaid
 graph LR
     subgraph Training["Proceso de entrenamiento (offline)"]
         DATA2["Datos de entrenamiento\ntutorías sintéticas y reales"]
-        SFT["SFT\nSupervised Fine-Tuning\nQwen3-0.6B · gemma-3-1b"]
+        SFT["SFT\nSupervised Fine-Tuning\nQwen3-0.6B · gemma-4-e2b"]
         DPO["DPO\nDirect Preference Optimization\nalineación pedagógica CLASS"]
         DATA2 --> SFT --> DPO
     end
 
     subgraph Runtime["Runtime activo (Ollama)"]
-        GGUF["Modelo GGUF\ngemma3:4b por defecto"]
+        GGUF["Modelo GGUF\ngemma4:e2b por defecto"]
     end
 
     DPO -.->|"convertir → GGUF\n(mejora futura de alta prioridad)"| GGUF
@@ -810,8 +811,8 @@ graph TD
 
 | Mejora | Descripción | Prioridad |
 |---|---|---|
-| **Activar checkpoints fine-tuned** | Convertir `Qwen3-0.6B-sft-dpo` y `gemma-3-1b-it-sft-dpo` a GGUF e importar en Ollama. Es el paso con mayor impacto potencial en calidad pedagógica. | Alta |
-| **Quantización Q4_K_M** | Usar modelos con quantización agresiva (`gemma3:1b-q4_K_M`) para hardware con poca VRAM. | Media |
+| **Activar checkpoints fine-tuned** | Convertir `Qwen3-0.6B-sft-dpo` y `gemma-4-e2b-it-sft-dpo` a GGUF e importar en Ollama. Es el paso con mayor impacto potencial en calidad pedagógica. | Alta |
+| **Quantización Q4_K_M** | Usar modelos con quantización agresiva (`gemma4:e2b-q4_K_M` o `phi4-mini:3.8b-q4_K_M`) para hardware con poca VRAM. | Media |
 | **Cache de respuestas frecuentes** | Preguntas repetidas ("¿Qué es una fracción?") podrían servirse desde un cache local sin llamar al LLM. | Media |
 | **Prefetch del modelo** | Al abrir el cuaderno, hacer un ping de chat vacío para calentar el modelo antes de la primera pregunta. | Baja |
 | **Streaming con verifier en paralelo** | Actualmente los tokens se acumulan hasta que el verifier aprueba. Mostrar streaming parcial con "revisando…" reduciría la latencia percibida. | Media |
@@ -846,4 +847,4 @@ graph TD
 | `scripts/migrate-lessons-to-catalog.mjs` | Migración de `lessons.json` legacy → nuevo catálogo |
 | `data/lesson-catalog/` | Contenido de lecciones (18 unidades, 3.º–Secundaria) |
 | `Qwen3-0.6B-sft-dpo/` | Checkpoint SFT+DPO (artefacto de entrenamiento, no activo) |
-| `gemma-3-1b-it-sft-dpo/` | Checkpoint SFT+DPO (artefacto de entrenamiento, no activo) |
+| `gemma-4-e2b-it-sft-dpo/` | Checkpoint SFT+DPO (artefacto de entrenamiento, no activo) |

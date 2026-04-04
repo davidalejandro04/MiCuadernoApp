@@ -31,7 +31,7 @@ const DEFAULT_PROFILE = {
   interactionLog: []
 };
 
-const REQUIRED_MODEL = "gemma3:4b";
+const REQUIRED_MODEL = "gemma4:e2b";
 
 const DEFAULT_SETTINGS = {
   currentModel: REQUIRED_MODEL,

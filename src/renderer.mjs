@@ -105,14 +105,14 @@ const pageMeta = {
 };
 
 const DEFAULT_SETTINGS = {
-  currentModel: "gemma3:4b",
+  currentModel: "gemma4:e2b",
   ollamaBaseUrl: "http://127.0.0.1:11434",
   responseMode: "coach",
   theme: "light",
   agentMode: true,
-  agentRouterModel: "gemma3:4b",
-  agentTutorModel: "gemma3:4b",
-  agentFunctionModel: "gemma3:4b"
+  agentRouterModel: "gemma4:e2b",
+  agentTutorModel: "gemma4:e2b",
+  agentFunctionModel: "gemma4:e2b"
 };
 
 const PRACTICE_KIND_LABELS = {
@@ -123,7 +123,7 @@ const PRACTICE_KIND_LABELS = {
   "visual-help": "Ayuda visual"
 };
 
-const PULLABLE_MODELS = ["gemma3:1b", "gemma3:4b"];
+const PULLABLE_MODELS = ["gemma4:e2b", "phi4-mini:3.8b"];
 
 const VISION_MODEL_PATTERNS = [
   "llava",
@@ -135,6 +135,7 @@ const VISION_MODEL_PATTERNS = [
   "qwen2.5vl",
   "qwen2vl",
   "gemma3",
+  "gemma4",
   "llama3.2-vision",
   "phi4-multimodal",
   "granite-vision"
@@ -570,7 +571,7 @@ async function bootstrap() {
   state.selectedUnit = state.lessons[0]?.unit || null;
   state.page = state.profile.onboardingCompleted ? "lessons" : "profile";
 
-  const requiredModel = payload.requiredModel || "gemma3:1b";
+  const requiredModel = payload.requiredModel || "gemma4:e2b";
   const hasRequired = state.availableModels.some((m) => m.name === requiredModel);
 
   if (state.ollama.ok && !hasRequired) {
@@ -2311,7 +2312,7 @@ function renderSettingsModal() {
               </select>
             </label>
             <label>
-              <span class="muted">Modelo tutor (recomendado: gemma3:4b)</span>
+              <span class="muted">Modelo tutor (recomendado: gemma4:e2b)</span>
               <select data-settings-field="agentTutorModel">
                 ${modelOptions(draft.agentTutorModel, { placeholder: "Usar modelo principal" })}
               </select>
