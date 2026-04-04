@@ -160,6 +160,7 @@ const state = {
   practiceMode: "coach",
   practiceSession: null,
   isThinking: false,
+  thinkingStream: "",
   explanation: { open: false, busy: false, cards: [] },
   flashcards: {
     open: false,
@@ -505,19 +506,36 @@ function cloneSettings(source = state.settingsDraft || state.settings) {
   return normalizeSettings({ ...source });
 }
 
-function openLoadingPanel({ title, detail, cancelable = false, requestId = "" }) {
+let _tokenCleanup = null;
+let _loadingStartTime = 0;
+let _loadingProgressInterval = null;
+
+function openLoadingPanel({ title, detail, cancelable = false, requestId = "", thinking = false }) {
+  state.thinkingStream = "";
   state.loadingPanel = {
     open: true,
     title: title || "Preparando tu cuaderno",
     detail: detail || "Un momento, casi listo...",
     cancelable,
-    requestId
+    requestId,
+    thinking,
+    lessonCards: thinking ? pickRandomLessonCards(3) : []
   };
+  if (thinking) {
+    _loadingStartTime = Date.now();
+    startTokenListener();
+    startProgressUpdater();
+  }
   render();
 }
 
 function closeLoadingPanel() {
   if (!state.loadingPanel.open) return;
+  if (state.loadingPanel.thinking) {
+    stopTokenListener();
+    stopProgressUpdater();
+    state.thinkingStream = "";
+  }
   state.loadingPanel = {
     ...state.loadingPanel,
     open: false,
@@ -525,6 +543,60 @@ function closeLoadingPanel() {
     requestId: ""
   };
   render();
+}
+
+function startTokenListener() {
+  stopTokenListener();
+  _tokenCleanup = window.bridge.onChatToken((data) => {
+    state.thinkingStream += data.token;
+    updateThinkingStreamDom();
+  });
+}
+
+function stopTokenListener() {
+  if (_tokenCleanup) {
+    _tokenCleanup();
+    _tokenCleanup = null;
+  }
+}
+
+function startProgressUpdater() {
+  stopProgressUpdater();
+  _loadingProgressInterval = setInterval(() => {
+    const bar = document.getElementById("loading-progress-fill");
+    if (!bar) return;
+    const elapsed = (Date.now() - _loadingStartTime) / 1000;
+    const pct = Math.min(95, 100 * (1 - Math.exp(-elapsed / 12)));
+    bar.style.width = `${pct}%`;
+  }, 300);
+}
+
+function stopProgressUpdater() {
+  if (_loadingProgressInterval) {
+    clearInterval(_loadingProgressInterval);
+    _loadingProgressInterval = null;
+  }
+}
+
+function updateThinkingStreamDom() {
+  const el = document.getElementById("thinking-stream-content");
+  if (!el) return;
+  el.textContent = state.thinkingStream;
+  el.scrollTop = el.scrollHeight;
+}
+
+function pickRandomLessonCards(count) {
+  const all = state.lessons.flatMap((unit) =>
+    (unit.lessons || []).map((lesson) => ({
+      unit: unit.unit,
+      title: lesson.title,
+      description: lesson.description || "",
+      stageCount: (lesson.stages || []).length
+    }))
+  );
+  if (all.length === 0) return [];
+  const shuffled = all.sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, Math.min(count, shuffled.length));
 }
 
 function isRequestCancelled(requestId = "") {
@@ -2256,16 +2328,16 @@ function renderSettingsModal() {
 }
 
 function renderLoadingPanel() {
+  if (!state.loadingPanel.thinking) {
+    return renderClassicLoadingPanel();
+  }
+  return renderThinkingLoadingPanel();
+}
+
+function renderClassicLoadingPanel() {
   return `
     <div class="modal loading-modal">
       <div class="modal-card loading-card">
-        ${state.loadingPanel.cancelable
-          ? `
-            <div class="loading-close-row">
-              <button class="ghost-btn loading-close-btn" data-action="cancel-loading" aria-label="Cancelar generacion">X</button>
-            </div>
-          `
-          : ""}
         <div class="loading-scene">
           <div class="loading-orbit orbit-a"></div>
           <div class="loading-orbit orbit-b"></div>
@@ -2279,6 +2351,53 @@ function renderLoadingPanel() {
           <span class="tag">Tutor local</span>
           <h3 style="margin:0;">${escapeHtml(state.loadingPanel.title)}</h3>
           <p class="muted" id="pull-progress-detail">${escapeHtml(state.loadingPanel.detail)}</p>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderThinkingLoadingPanel() {
+  const cards = state.loadingPanel.lessonCards || [];
+  const cardsHtml = cards.length > 0
+    ? cards.map((c) => `
+        <div class="loading-lesson-card">
+          <span class="loading-lesson-unit">${escapeHtml(c.unit)}</span>
+          <h4 class="loading-lesson-title">${escapeHtml(c.title)}</h4>
+          <p class="loading-lesson-desc">${escapeHtml(c.description || "Sin descripcion disponible.")}</p>
+          <span class="loading-lesson-stages">${c.stageCount} etapa${c.stageCount !== 1 ? "s" : ""}</span>
+        </div>
+      `).join("")
+    : `<p class="muted" style="padding:16px;">Cargando lecciones...</p>`;
+
+  return `
+    <div class="modal loading-modal">
+      <div class="modal-card loading-card-v2">
+        ${state.loadingPanel.cancelable
+          ? `<div class="loading-close-row">
+              <button class="ghost-btn loading-close-btn" data-action="cancel-loading" aria-label="Cancelar generacion">X</button>
+            </div>`
+          : ""}
+        <div class="loading-panels">
+          <div class="loading-panel-left">
+            <div class="loading-panel-header">
+              <span class="loading-panel-dot"></span>
+              <span class="loading-panel-label">Pensando...</span>
+            </div>
+            <pre class="thinking-stream" id="thinking-stream-content">${escapeHtml(state.thinkingStream) || "Esperando tokens del modelo..."}</pre>
+          </div>
+          <div class="loading-panel-right">
+            <div class="loading-panel-header">
+              <span class="loading-panel-label">Mientras esperas...</span>
+            </div>
+            <div class="loading-lesson-cards">${cardsHtml}</div>
+          </div>
+        </div>
+        <div class="loading-footer">
+          <span class="loading-footer-text">${escapeHtml(state.loadingPanel.title)}</span>
+          <div class="loading-progress-bar">
+            <div class="loading-progress-fill" id="loading-progress-fill"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -3070,7 +3189,8 @@ async function runTextExplanation() {
     title: "Generando ayuda",
     detail: "Estoy preparando tarjetas a partir del texto que seleccionaste.",
     cancelable: true,
-    requestId
+    requestId,
+    thinking: true
   });
 
   try {
@@ -3155,7 +3275,8 @@ async function runImageExplanation() {
     title: "Analizando recorte",
     detail: "Estoy generando tarjetas a partir de la imagen seleccionada.",
     cancelable: true,
-    requestId
+    requestId,
+    thinking: true
   });
 
   try {
@@ -3281,7 +3402,8 @@ async function handleSubmit(event) {
     title: "Generando respuesta",
     detail: "Estoy clasificando tu pregunta y preparando las tarjetas o el problema guiado.",
     cancelable: true,
-    requestId
+    requestId,
+    thinking: true
   });
   render();
 
@@ -3489,43 +3611,31 @@ async function handleClick(event) {
     state.studentAnalysis = { open: true, busy: true, text: "" };
     render();
     try {
-      const log = (state.profile.interactionLog || []).slice(-40);
-      const sessions = (state.profile.tutorSessions || []).slice(-10);
+      const log = (state.profile.interactionLog || []).slice(-5);
+      const sessions = (state.profile.tutorSessions || []).slice(-5);
       const metrics = tutorMetrics();
-      const systemPrompt = `Eres un analista pedagogico experto. Analiza las interacciones de un estudiante de matematicas y genera un resumen en español con los siguientes puntos:
-1. Patrones de comportamiento observados
-2. Conceptos en los que el estudiante demuestra mas dificultad
-3. Conceptos en los que el estudiante muestra mayor fortaleza
-4. Nivel de persistencia (cuantos intentos hace, cuantas pistas pide)
-5. Calidad del feedback recibido del sistema (segun los thumbs up/down)
-6. Recomendaciones concretas para mejorar el aprendizaje del estudiante
-
-Sé conciso pero preciso. Usa bullet points. NO uses markdown complejo, solo bullets simples.`;
+      const truncate = (s, max = 40) => {
+        const t = String(s || "").slice(0, max);
+        return t.length < String(s || "").length ? t + "..." : t;
+      };
+      const systemPrompt = `Analista pedagogico. Analiza datos de un estudiante de matematicas. Responde en español con bullets: dificultades, fortalezas, persistencia, recomendaciones.`;
       const userPrompt = [
-        `Estudiante: ${state.profile.name || "Sin nombre"} (${state.profile.grade || "sin grado"})`,
-        `Sesiones totales: ${metrics.sessions}`,
-        `Intentos correctos: ${metrics.correctAttempts}, incorrectos: ${metrics.incorrectAttempts}, ambiguos: ${metrics.ambiguousAttempts}`,
-        `Pasos completados: ${metrics.stepsCompleted}`,
-        `Pistas pedidas: ${metrics.hintsShown}`,
-        `Feedback positivo: ${metrics.feedbackUp}, negativo: ${metrics.feedbackDown}`,
-        `Alertas de dificultad: ${metrics.struggleSignals}`,
-        ``,
-        `Ultimas ${log.length} interacciones registradas:`,
-        ...log.map((e, i) => `  ${i + 1}. P: "${e.question}" | R: "${e.answer}" | Accion: ${e.actionTaken} | Feedback: ${e.feedback || "sin valorar"}`),
-        ``,
-        `Sesiones recientes (${sessions.length}):`,
-        ...sessions.map((s) => `  - [${s.kind}] ${s.topic} (${(s.events || []).length} eventos, estado: ${s.status})`)
+        `${state.profile.name || "Sin nombre"} (${state.profile.grade || "sin grado"})`,
+        `Ses:${metrics.sessions} OK:${metrics.correctAttempts} Mal:${metrics.incorrectAttempts} Pistas:${metrics.hintsShown} +1:${metrics.feedbackUp} -1:${metrics.feedbackDown}`,
+        ...log.map((e, i) => `${i + 1}. "${truncate(e.question)}" ${e.actionTaken} fb:${e.feedback || "-"}`),
+        ...sessions.map((s) => `[${s.kind}] ${truncate(s.topic, 30)} (${(s.events || []).length}ev)`)
       ].join("\n");
 
       const text = await askWithLlm([
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt }
-      ], { maxTokens: 600, temperature: 0.3 });
+      ], { maxTokens: 300, temperature: 0.3 });
 
       state.studentAnalysis = { open: true, busy: false, text: String(text || "No se pudo generar el analisis.") };
     } catch (err) {
       state.studentAnalysis = { open: true, busy: false, text: `Error al generar el analisis: ${err.message}` };
     }
+    scheduleRender();
   }
 
   if (action === "close-student-analysis") {
@@ -3766,7 +3876,7 @@ Sé conciso pero preciso. Usa bullet points. NO uses markdown complejo, solo bul
       if (state.practiceSession.agentMode && state.practiceSession.tutorState) {
         const retryCount = state.practiceSession.stepFailureCounts?.[step.id] || 0;
         const askFn = makeAgentAskFn();
-        openLoadingPanel({ title: "Tutor evaluando...", cancelable: false });
+        openLoadingPanel({ title: "Tutor evaluando...", cancelable: false, thinking: true });
         let turnResult;
         try {
           turnResult = await runTurnPipeline(
