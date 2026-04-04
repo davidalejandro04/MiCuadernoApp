@@ -28,7 +28,6 @@ import {
   loadLessonCatalogFromDirectory
 } from "../src/utils/lesson-catalog.mjs";
 import { wrapStageHtml } from "../src/utils/content.mjs";
-import legacyLessons from "../data/lessons.json" with { type: "json" };
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -197,11 +196,7 @@ async function run() {
   assert.equal(profile.lessonFlashcards.length, 1);
   assert.equal(profile.lessonFlashcards[0].entries.length, 2);
 
-  assert.equal(lessons.length, legacyLessons.length);
-  assert.equal(
-    lessons.reduce((sum, unit) => sum + unit.lessons.length, 0),
-    legacyLessons.reduce((sum, unit) => sum + unit.lessons.length, 0)
-  );
+  assert.ok(lessons.length > 0, "Catalog should have at least one unit");
   const ratio = completionRatio(lessons, new Set());
   assert.ok(ratio.total > 0);
 

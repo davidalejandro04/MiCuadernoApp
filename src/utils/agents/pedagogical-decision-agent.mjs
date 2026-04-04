@@ -42,7 +42,7 @@ Tipos de turno:
 
 export async function pedagogicalDecisionAgent(
   { studentMessage, currentSubproblem, learnerModel = null, retryCount = 0 },
-  { askFn, model, maxTokens = 180 }
+  { askFn, maxTokens = 180 }
 ) {
   const userPrompt = [
     `Subproblema actual:`,
@@ -67,7 +67,7 @@ export async function pedagogicalDecisionAgent(
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: userPrompt }
     ],
-    { model, maxTokens, temperature: 0.1 }
+    { maxTokens, temperature: 0.1 }
   );
 
   const parsed = safeParseAgentJson(raw, {});

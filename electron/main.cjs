@@ -4,6 +4,27 @@ const fsSync = require("fs");
 const crypto = require("crypto");
 const path = require("path");
 const { pathToFileURL } = require("url");
+const { spawn } = require("child_process");
+
+let llamaServerProc = null;
+
+const LLM_PORT = 8080;
+const LLM_BASE = `http://127.0.0.1:${LLM_PORT}`;
+
+function waitForServer(timeoutMs = 30000) {
+  const start = Date.now();
+  return new Promise((resolve, reject) => {
+    const attempt = () => {
+      fetch(`${LLM_BASE}/health`)
+        .then(r => { if (r.ok || r.status === 200) resolve(); else throw new Error(); })
+        .catch(() => {
+          if (Date.now() - start > timeoutMs) reject(new Error("llama-server did not start in time"));
+          else setTimeout(attempt, 500);
+        });
+    };
+    attempt();
+  });
+}
 
 const APP_DATA_NAME = ".TutorMate";
 const DATA_DIR = path.join(app.getPath("appData"), APP_DATA_NAME);
@@ -34,14 +55,9 @@ const DEFAULT_PROFILE = {
 const REQUIRED_MODEL = "gemma4:e2b";
 
 const DEFAULT_SETTINGS = {
-  currentModel: REQUIRED_MODEL,
-  ollamaBaseUrl: "http://127.0.0.1:11434",
   responseMode: "coach",
   theme: "light",
-  agentMode: true,
-  agentRouterModel: REQUIRED_MODEL,
-  agentTutorModel: REQUIRED_MODEL,
-  agentFunctionModel: REQUIRED_MODEL
+  agentMode: true
 };
 
 const activeChatControllers = new Map();
@@ -136,45 +152,35 @@ async function writeJson(filePath, data) {
   return data;
 }
 
-async function listOllamaModels(baseUrl) {
-  const response = await fetch(`${baseUrl.replace(/\/$/, "")}/api/tags`);
-  if (!response.ok) {
-    throw new Error(`No se pudo consultar Ollama (${response.status})`);
-  }
-
-  const payload = await response.json();
-  return (payload.models || []).map((model) => ({
-    name: model.name,
-    size: model.size,
-    modifiedAt: model.modified_at,
-    details: model.details || {}
-  }));
+/**
+ * Normalize messages for llama.cpp OpenAI-compatible API.
+ * Converts Ollama-style image messages ({content, images: [base64]})
+ * to OpenAI multimodal format ({content: [{type:"text",...},{type:"image_url",...}]}).
+ */
+function normalizeMessages(messages) {
+  return messages.map((msg) => {
+    if (!Array.isArray(msg.images) || msg.images.length === 0) return msg;
+    const parts = [];
+    if (msg.content) {
+      parts.push({ type: "text", text: String(msg.content) });
+    }
+    for (const img of msg.images) {
+      parts.push({
+        type: "image_url",
+        image_url: { url: `data:image/png;base64,${img}` }
+      });
+    }
+    const { images: _dropped, ...rest } = msg;
+    return { ...rest, content: parts };
+  });
 }
 
-async function preloadModel(baseUrl, modelName) {
-  try {
-    await fetch(`${baseUrl.replace(/\/$/, "")}/api/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: modelName,
-        messages: [],
-        keep_alive: "30m",
-        options: { num_gpu: 999, use_mmap: true, flash_attn: true }
-      })
-    });
-  } catch {
-    // Model preload is best-effort; ignore errors.
-  }
-}
-
-async function chatWithOllama({
-  baseUrl,
-  model,
+async function chatWithLlm({
   messages,
   requestId = "",
   maxTokens = null,
   temperature = null,
+  forceJson = false,
   webContents = null
 }) {
   const safeRequestId = String(requestId || "").trim();
@@ -183,56 +189,37 @@ async function chatWithOllama({
     activeChatControllers.set(safeRequestId, controller);
   }
 
-  const ollamaOptions = {
-    num_ctx: 1024,          // minimal context window — fastest inference
-    num_predict: 1024,      // max output tokens
-    temperature: 0.4,       // lower temp = faster convergence, less sampling
-    num_thread: 0,          // 0 = auto-detect optimal thread count
-    num_gpu: 999,           // offload all layers to GPU
-    num_batch: 1024,        // large batch = faster prompt processing
-    mirostat: 0,            // disabled for speed
-    repeat_penalty: 1.0,    // no penalty check = faster
-    top_k: 10,              // very narrow sampling = faster token selection
-    top_p: 0.85,            // tighter nucleus
-    use_mmap: true,         // memory-mapped model loading
-    low_vram: false,        // don't restrict GPU usage
-    flash_attn: true,       // enable flash attention if supported
-  };
+  let numPredict = 512;
+  let temp = 0.4;
   if (Number.isFinite(Number(maxTokens)) && Number(maxTokens) > 0) {
-    ollamaOptions.num_predict = Math.round(Number(maxTokens));
+    numPredict = Math.round(Number(maxTokens));
   }
   if (Number.isFinite(Number(temperature))) {
-    ollamaOptions.temperature = Number(temperature);
+    temp = Number(temperature);
   }
 
   try {
-    const response = await fetch(`${baseUrl.replace(/\/$/, "")}/api/chat`, {
+    const normalizedMessages = normalizeMessages(messages);
+    const response = await fetch(`${LLM_BASE}/v1/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model,
+        model: REQUIRED_MODEL,
         stream: true,
-        messages,
-        keep_alive: "30m",
-        options: ollamaOptions
+        messages: normalizedMessages,
+        max_tokens: numPredict,
+        temperature: temp,
+        ...(forceJson ? { response_format: { type: "json_object" } } : {})
       }),
       signal: controller.signal
     });
 
     if (!response.ok) {
-      let detail = "";
-      try {
-        const errBody = await response.json();
-        detail = errBody?.error || errBody?.message || "";
-      } catch {
-        // ignore parse failure
-      }
-      throw new Error(`Ollama devolvio ${response.status}${detail ? `: ${detail}` : ""}`);
+      throw new Error(`Llama.cpp error: ${response.status}`);
     }
 
-    // Stream NDJSON response
     const reader = response.body.getReader();
-    const decoder = new TextDecoder();
+    const decoder = new TextDecoder("utf-8");
     let buffer = "";
     let fullContent = "";
 
@@ -245,19 +232,19 @@ async function chatWithOllama({
       buffer = lines.pop();
 
       for (const line of lines) {
-        if (!line.trim()) continue;
+        if (!line.trim() || !line.startsWith("data: ")) continue;
+        const dataStr = line.replace(/^data: /, "");
+        if (dataStr === "[DONE]") break;
         try {
-          const data = JSON.parse(line);
-          const token = data.message?.content || "";
+          const data = JSON.parse(dataStr);
+          const token = data.choices?.[0]?.delta?.content || "";
           if (token) {
             fullContent += token;
             if (webContents && !webContents.isDestroyed()) {
-              webContents.send("ollama:chat-token", { requestId: safeRequestId, token });
+              webContents.send("llm:chat-token", { requestId: safeRequestId, token });
             }
           }
-        } catch {
-          // skip malformed JSON lines
-        }
+        } catch {}
       }
     }
 
@@ -276,51 +263,7 @@ async function chatWithOllama({
   }
 }
 
-async function pullOllamaModel(event, { baseUrl, modelName }) {
-  const url = `${(baseUrl || "http://127.0.0.1:11434").replace(/\/$/, "")}/api/pull`;
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name: modelName, stream: true })
-  });
-
-  if (!response.ok) {
-    throw new Error(`Ollama pull fallo (${response.status})`);
-  }
-
-  const webContents = event.sender;
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-
-    const lines = buffer.split("\n");
-    buffer = lines.pop();
-
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      try {
-        const data = JSON.parse(line);
-        webContents.send("ollama:pull-progress", {
-          modelName,
-          status: data.status || "",
-          total: data.total || 0,
-          completed: data.completed || 0
-        });
-      } catch {
-        // skip malformed JSON lines
-      }
-    }
-  }
-
-  return { ok: true };
-}
-
-function cancelOllamaChat(_event, requestId) {
+function cancelLlmChat(_event, requestId) {
   const safeRequestId = String(requestId || "").trim();
   const controller = activeChatControllers.get(safeRequestId);
   if (!controller) {
@@ -349,10 +292,42 @@ async function captureRegion(event, rect) {
 async function bootstrap() {
   ensureMachineId();
 
+  if (!llamaServerProc) {
+    const exePath = path.join(ROOT_DIR, "bin", "llama-server.exe");
+    const modelPath = path.join(ROOT_DIR, "models", "gemma-3-4b-it-q4_k_m.gguf");
+    const mmprojPath = path.join(ROOT_DIR, "models", "mmproj-gemma-3-4b-it-f16.gguf");
+
+
+    const args = [
+      "-m", modelPath,
+      "--port", String(LLM_PORT),
+      "-c", "2048",
+      "-ngl", "0",
+      "--no-mmap",
+      "-np", "1",
+      "-b", "256",
+      "-ub", "256"
+    ];
+    if (fsSync.existsSync(mmprojPath)) {
+      args.push("--mmproj", mmprojPath);
+    }
+    llamaServerProc = spawn(exePath, args);
+    llamaServerProc.stdout.on("data", d => process.stdout.write(`[llama.cpp] ${d}`));
+    llamaServerProc.stderr.on("data", d => process.stderr.write(`[llama.cpp] ${d}`));
+    llamaServerProc.on("close", code => console.log(`llama.cpp exited with code ${code}`));
+  }
+
+  // Wait for the server to be healthy before returning bootstrap
+  try {
+    await waitForServer(45000);
+    console.log("[llama.cpp] Server is ready.");
+  } catch (err) {
+    console.error("[llama.cpp] Server failed to start:", err.message);
+  }
+
   const { loadLessonCatalogFromDirectory } = await getLessonCatalogModule();
   const lessons = await loadLessonCatalogFromDirectory(LESSON_CATALOG_DIR);
 
-  // Build RAG index from lesson catalog
   try {
     const { chunkLessonCatalog, RAGIndex, Retriever } = await getRAGModule();
     const chunks = chunkLessonCatalog(lessons);
@@ -365,43 +340,10 @@ async function bootstrap() {
 
   const profile = await readJson(userFile("profile.json"), DEFAULT_PROFILE);
   const settings = await readJson(userFile("settings.json"), DEFAULT_SETTINGS);
-  let shouldPersistSettings = false;
-
-  let availableModels = [];
-  let ollama = { ok: false, message: "No se encontró la IA. Asegúrate de que Ollama esté en marcha." };
-
-  try {
-    availableModels = await listOllamaModels(settings.ollamaBaseUrl);
-    ollama = {
-      ok: true,
-      message: availableModels.length
-        ? `${availableModels.length} modelo${availableModels.length !== 1 ? "s" : ""} disponible${availableModels.length !== 1 ? "s" : ""}.`
-        : "La IA está conectada, pero no hay modelos descargados."
-    };
-    if (!settings.currentModel && settings.ollamaModel) {
-      settings.currentModel = settings.ollamaModel;
-      shouldPersistSettings = true;
-    }
-    if (!settings.currentModel && availableModels[0]) {
-      settings.currentModel = availableModels[0].name;
-      shouldPersistSettings = true;
-    }
-  } catch (error) {
-    ollama = { ok: false, message: error.message };
-  }
-
-  if (shouldPersistSettings) {
-    await writeJson(userFile("settings.json"), settings);
-  }
-
-  // Preload the active model into VRAM for faster first response
-  if (ollama.ok && settings.currentModel) {
-    preloadModel(settings.ollamaBaseUrl, settings.currentModel);
-  }
 
   return {
-    lessons, profile, settings, availableModels, ollama,
-    requiredModel: REQUIRED_MODEL,
+    lessons, profile, settings,
+    llm: { ok: true, message: "Modelo gemma4:e2b listo." },
     machineId,
     dataPath: app.getPath("userData")
   };
@@ -437,8 +379,7 @@ app.whenReady().then(() => {
     return profile;
   });
   ipcMain.handle("settings:save", (_event, settings) => writeJson(userFile("settings.json"), settings));
-  ipcMain.handle("ollama:list-models", (_event, baseUrl) => listOllamaModels(baseUrl));
-  ipcMain.handle("ollama:chat", async (event, payload) => {
+  ipcMain.handle("llm:chat", async (event, payload) => {
     if (payload.useRAG && ragRetriever) {
       try {
         const { augmentPromptWithContext } = await getRAGModule();
@@ -462,14 +403,13 @@ app.whenReady().then(() => {
         console.warn("[rag] Error augmenting chat:", err.message);
       }
     }
-    return chatWithOllama({ ...payload, webContents: event.sender });
+    return chatWithLlm({ ...payload, webContents: event.sender });
   });
-  ipcMain.handle("ollama:cancel-chat", cancelOllamaChat);
+  ipcMain.handle("llm:cancel-chat", cancelLlmChat);
   ipcMain.handle("rag:search", async (_event, query) => {
     if (!ragRetriever) return { context: "", sources: [] };
     return ragRetriever.retrieve(String(query || ""));
   });
-  ipcMain.handle("ollama:pull-model", pullOllamaModel);
   ipcMain.handle("data:wipe", async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     return confirmAndWipeData(win);
@@ -490,4 +430,7 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     app.quit();
   }
+});
+app.on("before-quit", () => {
+  if (llamaServerProc) llamaServerProc.kill();
 });

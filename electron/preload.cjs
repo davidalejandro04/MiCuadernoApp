@@ -5,19 +5,12 @@ contextBridge.exposeInMainWorld("bridge", {
   saveProfile: (profile) => ipcRenderer.invoke("profile:save", profile),
   resetProfile: () => ipcRenderer.invoke("profile:reset"),
   saveSettings: (settings) => ipcRenderer.invoke("settings:save", settings),
-  listModels: (baseUrl) => ipcRenderer.invoke("ollama:list-models", baseUrl),
-  chat: (payload) => ipcRenderer.invoke("ollama:chat", payload),
-  cancelChat: (requestId) => ipcRenderer.invoke("ollama:cancel-chat", requestId),
-  pullModel: (payload) => ipcRenderer.invoke("ollama:pull-model", payload),
-  onPullProgress: (callback) => {
-    const handler = (_event, data) => callback(data);
-    ipcRenderer.on("ollama:pull-progress", handler);
-    return () => ipcRenderer.removeListener("ollama:pull-progress", handler);
-  },
+  chat: (payload) => ipcRenderer.invoke("llm:chat", payload),
+  cancelChat: (requestId) => ipcRenderer.invoke("llm:cancel-chat", requestId),
   onChatToken: (callback) => {
     const handler = (_event, data) => callback(data);
-    ipcRenderer.on("ollama:chat-token", handler);
-    return () => ipcRenderer.removeListener("ollama:chat-token", handler);
+    ipcRenderer.on("llm:chat-token", handler);
+    return () => ipcRenderer.removeListener("llm:chat-token", handler);
   },
   wipeData: () => ipcRenderer.invoke("data:wipe"),
   getDataPath: () => ipcRenderer.invoke("data:path"),

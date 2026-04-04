@@ -1,6 +1,6 @@
 # Mi cuaderno — Documentación técnica
 
-> **Aplicación de escritorio Electron + Ollama** para tutorías matemáticas adaptativas con un motor multi-agente, recuperación RAG y persistencia local completa. Diseñada para alumnos de primaria.
+> **Aplicación de escritorio Electron + Llm** para tutorías matemáticas adaptativas con un motor multi-agente, recuperación RAG y persistencia local completa. Diseñada para alumnos de primaria.
 
 ![Portada](assets/readme.png)
 
@@ -26,7 +26,7 @@
 # 1. Instalar dependencias
 npm install
 
-# 2. Ollama debe estar corriendo con al menos un modelo
+# 2. Llm debe estar corriendo con al menos un modelo
 ollama serve
 ollama pull qwen3:0.6b   # recomendado: modelo rápido para el router
 ollama pull gemma4:e2b   # recomendado: modelo tutor con razonamiento
@@ -63,7 +63,7 @@ graph TD
         CATALOG["data/lesson-catalog/"]
     end
 
-    OLLAMA["Ollama :11434\n(LLM local)"]
+    OLLAMA["Llm :11434\n(LLM local)"]
 
     REND <-->|window.bridge| PRELOAD
     PRELOAD <-->|ipcRenderer / ipcMain| MAIN
@@ -72,7 +72,7 @@ graph TD
     MAIN -->|carga en arranque| CATALOG
     REND --> AGENTS
     REND --> RAG_MOD
-    AGENTS -->|askWithOllama via bridge| PRELOAD
+    AGENTS -->|askWithLlm via bridge| PRELOAD
     RAG_MOD -->|rag:search IPC| MAIN
 ```
 
@@ -83,7 +83,7 @@ sequenceDiagram
     participant E as Electron main
     participant FS as Disco (userData)
     participant R as Renderer
-    participant O as Ollama
+    participant O as Llm
 
     E->>FS: Lee profile.json + settings.json
     E->>E: Carga lesson-catalog/ (lesson-catalog.mjs)
@@ -203,7 +203,7 @@ sequenceDiagram
     participant U as Alumno
     participant R as Renderer
     participant M as main.cjs
-    participant O as Ollama (visión)
+    participant O as Llm (visión)
 
     U->>R: Selecciona texto en la lección
     R->>R: Muestra menú contextual flotante
@@ -213,7 +213,7 @@ sequenceDiagram
     M->>M: ragRetriever.retrieve(query)
     M->>O: POST /api/chat\n(system + contexto RAG + user)
     O-->>M: stream de tokens NDJSON
-    M-->>R: ollama:chat-token events
+    M-->>R: llm:chat-token events
     R->>R: parseExplanationCards()\nAbre FlashcardModal (3 tarjetas)
 
     U->>R: Activa modo recorte ✂️
@@ -502,7 +502,7 @@ graph TD
         BM25_S --> RETRIEVER --> AUGMENT
     end
 
-    AUGMENT --> OLLAMA3["Ollama /api/chat\ncon contexto aumentado"]
+    AUGMENT --> OLLAMA3["Llm /api/chat\ncon contexto aumentado"]
 ```
 
 ### Pipeline de chunking
@@ -538,7 +538,7 @@ sequenceDiagram
     participant R as Renderer
     participant M as main.cjs
     participant RAG as RAG Retriever
-    participant O as Ollama
+    participant O as Llm
 
     R->>M: bridge.chat({question, useRAG:true, systemPrompt})
     M->>RAG: ragRetriever.retrieve(question, topK=2)
@@ -547,7 +547,7 @@ sequenceDiagram
     M->>M: augmentPromptWithContext(systemPrompt, context)
     M->>O: POST /api/chat\n{system: prompt+contexto, messages:[...]}
     O-->>M: stream tokens NDJSON
-    M-->>R: ollama:chat-token events (streaming)
+    M-->>R: llm:chat-token events (streaming)
     R->>R: Renderiza tokens progresivamente
 ```
 
@@ -567,7 +567,7 @@ sequenceDiagram
 
 ### Modelos fine-tuned (checkpoints)
 
-Los directorios `Qwen3-0.6B-sft-dpo/` y `gemma-4-e2b-it-sft-dpo/` contienen modelos entrenados con SFT + DPO en formato HuggingFace. **No están activos en la app actual** (que usa Ollama). Son artefactos del proceso de entrenamiento:
+Los directorios `Qwen3-0.6B-sft-dpo/` y `gemma-4-e2b-it-sft-dpo/` contienen modelos entrenados con SFT + DPO en formato HuggingFace. **No están activos en la app actual** (que usa Llm). Son artefactos del proceso de entrenamiento:
 
 ```mermaid
 graph LR
@@ -578,14 +578,14 @@ graph LR
         DATA2 --> SFT --> DPO
     end
 
-    subgraph Runtime["Runtime activo (Ollama)"]
+    subgraph Runtime["Runtime activo (Llm)"]
         GGUF["Modelo GGUF\ngemma4:e2b por defecto"]
     end
 
     DPO -.->|"convertir → GGUF\n(mejora futura de alta prioridad)"| GGUF
 ```
 
-### Parámetros de inferencia Ollama
+### Parámetros de inferencia Llm
 
 | Parámetro | Valor | Efecto |
 |---|---|---|
@@ -629,7 +629,7 @@ flowchart TD
     BASE2 --> MERGED["Prompt aumentado"]
     RAG_CTX --> MERGED
     PROFILE_CTX --> MERGED
-    USER2 --> FINAL["Request a Ollama"]
+    USER2 --> FINAL["Request a Llm"]
     MERGED --> FINAL
 
     FINAL --> PARSE["safeParseAgentJson()\nstrip code fences · extrae JSON · fallback a defaults"]
@@ -811,7 +811,7 @@ graph TD
 
 | Mejora | Descripción | Prioridad |
 |---|---|---|
-| **Activar checkpoints fine-tuned** | Convertir `Qwen3-0.6B-sft-dpo` y `gemma-4-e2b-it-sft-dpo` a GGUF e importar en Ollama. Es el paso con mayor impacto potencial en calidad pedagógica. | Alta |
+| **Activar checkpoints fine-tuned** | Convertir `Qwen3-0.6B-sft-dpo` y `gemma-4-e2b-it-sft-dpo` a GGUF e importar en Llm. Es el paso con mayor impacto potencial en calidad pedagógica. | Alta |
 | **Quantización Q4_K_M** | Usar modelos con quantización agresiva (`gemma4:e2b-q4_K_M` o `phi4-mini:3.8b-q4_K_M`) para hardware con poca VRAM. | Media |
 | **Cache de respuestas frecuentes** | Preguntas repetidas ("¿Qué es una fracción?") podrían servirse desde un cache local sin llamar al LLM. | Media |
 | **Prefetch del modelo** | Al abrir el cuaderno, hacer un ping de chat vacío para calentar el modelo antes de la primera pregunta. | Baja |
@@ -824,7 +824,7 @@ graph TD
 
 | Archivo | Responsabilidad |
 |---|---|
-| `electron/main.cjs` | IPC handlers, proxy Ollama, indexado RAG, persistencia perfil/settings |
+| `electron/main.cjs` | IPC handlers, proxy Llm, indexado RAG, persistencia perfil/settings |
 | `electron/preload.cjs` | Expone `window.bridge` al renderer vía contextBridge |
 | `src/renderer.mjs` | Estado global, `render()`, manejadores de eventos, toda la UI |
 | `src/utils/profile.mjs` | Shape del perfil, XP, conceptos, struggle signals, flashcards, migración |

@@ -18,7 +18,7 @@ Verifica que la respuesta del tutor:
 
 export async function verificationAgent(
   { candidateResponse, decision, currentSubproblem },
-  { askFn, model, maxTokens = 150 }
+  { askFn, maxTokens = 150 }
 ) {
   const userPrompt = [
     `Accion pedagogica: ${decision.pedagogical_action}`,
@@ -37,7 +37,7 @@ export async function verificationAgent(
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: userPrompt }
     ],
-    { model, maxTokens, temperature: 0 }
+    { maxTokens, temperature: 0 }
   );
 
   const parsed = safeParseAgentJson(raw, {});

@@ -7,3 +7,5 @@ CLAUDE.md
 /.claude
 class_multiagent_tutoring_system.md
 /build
+/models/
+/bin/

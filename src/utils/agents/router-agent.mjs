@@ -1,45 +1,22 @@
 import { safeParseAgentJson } from "./agent-utils.mjs";
 
-const SYSTEM_PROMPT = `Eres un clasificador estricto de mensajes para un tutor de matematicas infantiles en español.
+const SYSTEM_PROMPT = `Clasifica si el mensaje es sobre matematicas infantiles (grados 1-6).
+Responde SOLO con JSON valido, sin texto adicional.
 
-Tu trabajo es determinar si el mensaje del estudiante esta relacionado con MATEMATICAS.
+Formato: {"route":"pedagogical|direct_answer|off_topic|chitchat","intent":"new_question|hint_request|answer_check|off_topic|other","confidence":0.9,"requires_planner":true}
 
-FILTRO OBLIGATORIO:
-- SOLO acepta preguntas sobre: aritmetica, algebra basica, geometria, fracciones, decimales, porcentajes, medidas, estadistica basica, numeros primos, divisibilidad, operaciones, problemas de logica matematica.
-- RECHAZA: ciencias naturales, historia, geografia, idiomas, preguntas personales, juegos no matematicos, conversacion casual, cualquier tema que NO sea matematicas.
-- Si el estudiante saluda o hace una pregunta casual sin contenido matematico, clasifica como "chitchat".
-- Si la pregunta involucra un tema NO matematico, clasifica como "off_topic".
+pedagogical = necesita tutoria con pasos. direct_answer = respuesta simple. off_topic = no es mates. chitchat = saludo/casual.
 
-Responde SOLO con JSON valido, sin texto adicional:
-{
-  "route": "pedagogical|direct_answer|off_topic|chitchat",
-  "intent": "hint_request|answer_check|new_question|recap|example|off_topic|other",
-  "confidence": 0.8,
-  "requires_planner": true,
-  "rejection_reason": "string o null - si es off_topic, explica brevemente por que no es matematicas"
-}
+Ejemplo — "¿Cuanto es 5x3?" → {"route":"direct_answer","intent":"new_question","confidence":0.95,"requires_planner":false}
+Ejemplo — "Hola" → {"route":"chitchat","intent":"other","confidence":0.99,"requires_planner":false}`;
 
-Reglas de clasificacion:
-- "pedagogical": pregunta matematica que necesita tutoria completa con pasos y descomposicion
-- "direct_answer": pregunta matematica simple que se responde en una linea (ej: "cuanto es 2+2")
-- "off_topic": NO es matematicas infantiles (grados 1-6)
-- "chitchat": saludo o conversacion casual sin contenido matematico`;
-
-export async function routerAgent({ message, sessionSummary = "", currentSubproblemStatus = "" }, { askFn, model, maxTokens = 120 }) {
-  const userPrompt = [
-    `Mensaje del estudiante: "${message}"`,
-    sessionSummary ? `Resumen de sesion: ${sessionSummary}` : "",
-    currentSubproblemStatus ? `Estado actual: ${currentSubproblemStatus}` : "",
-    ``,
-    `¿Este mensaje es sobre MATEMATICAS? Clasifica con precision.`
-  ].filter(Boolean).join("\n");
-
+export async function routerAgent({ message }, { askFn, maxTokens = 60 }) {
   const raw = await askFn(
     [
       { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: userPrompt }
+      { role: "user", content: `Mensaje: "${message}"` }
     ],
-    { model, maxTokens, temperature: 0 }
+    { maxTokens, temperature: 0 }
   );
 
   const parsed = safeParseAgentJson(raw, {});

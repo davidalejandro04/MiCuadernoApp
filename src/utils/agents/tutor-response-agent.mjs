@@ -26,7 +26,7 @@ Segun la accion pedagogica:
 
 export async function tutorResponseAgent(
   { decision, currentSubproblem, learnerModel = null },
-  { askFn, model, maxTokens = 220 }
+  { askFn, maxTokens = 220 }
 ) {
   const hintText = (() => {
     const action = decision.pedagogical_action;
@@ -62,7 +62,7 @@ export async function tutorResponseAgent(
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: userPrompt }
     ],
-    { model, maxTokens, temperature: 0.3 }
+    { maxTokens, temperature: 0.3 }
   );
 
   const parsed = safeParseAgentJson(raw, null);

@@ -19,7 +19,7 @@ Escalas:
 
 export async function learnerModelAgent(
   { recentResponses = [], profile = null, currentSubproblem = null, retryCount = 0 },
-  { askFn, model, maxTokens = 220 }
+  { askFn, maxTokens = 220 }
 ) {
   const openStruggles = profile?.struggleSignals?.filter((s) => s.status === "open").length || 0;
   const knownCount = profile?.conceptProgress?.filter((c) => c.status === "known").length || 0;
@@ -40,7 +40,7 @@ export async function learnerModelAgent(
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: userPrompt }
     ],
-    { model, maxTokens, temperature: 0.1 }
+    { maxTokens, temperature: 0.1 }
   );
 
   const parsed = safeParseAgentJson(raw, {});

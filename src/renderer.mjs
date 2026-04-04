@@ -22,7 +22,6 @@ import {
   unitProgress
 } from "./utils/lessons.mjs";
 import { wrapStageHtml } from "./utils/content.mjs";
-import { resolveAgentModels } from "./utils/agents/model-config.mjs";
 import { runTutorPipeline, runTurnPipeline, runProgressPipeline } from "./utils/agents/pipeline.mjs";
 import {
   buildKidMathGateUserPrompt,
@@ -105,14 +104,9 @@ const pageMeta = {
 };
 
 const DEFAULT_SETTINGS = {
-  currentModel: "gemma4:e2b",
-  ollamaBaseUrl: "http://127.0.0.1:11434",
   responseMode: "coach",
   theme: "light",
-  agentMode: true,
-  agentRouterModel: "gemma4:e2b",
-  agentTutorModel: "gemma4:e2b",
-  agentFunctionModel: "gemma4:e2b"
+  agentMode: true
 };
 
 const PRACTICE_KIND_LABELS = {
@@ -123,23 +117,6 @@ const PRACTICE_KIND_LABELS = {
   "visual-help": "Ayuda visual"
 };
 
-const PULLABLE_MODELS = ["gemma4:e2b", "phi4-mini:3.8b"];
-
-const VISION_MODEL_PATTERNS = [
-  "llava",
-  "bakllava",
-  "vision",
-  "moondream",
-  "minicpm-v",
-  "minicpmv",
-  "qwen2.5vl",
-  "qwen2vl",
-  "gemma3",
-  "gemma4",
-  "llama3.2-vision",
-  "phi4-multimodal",
-  "granite-vision"
-];
 
 const VALIDATION_STOPWORDS = new Set([
   "a",
@@ -171,8 +148,7 @@ const state = {
   lessons: [],
   profile: migrateProfile(defaultProfile),
   settings: { ...DEFAULT_SETTINGS },
-  availableModels: [],
-  ollama: { ok: false, message: "No se encontró la IA. Asegúrate de que Ollama esté en marcha." },
+  llm: { ok: false, message: "Iniciando modelo local..." },
   machineId: "",
   dataPath: "",
   page: "home",
@@ -496,26 +472,19 @@ function renderExplanationCards(cards = []) {
   `;
 }
 
-function inferenceReadiness(settings = state.settings) {
+function inferenceReadiness() {
   return {
-    ready: Boolean(settings.currentModel),
-    reason: settings.currentModel ? "" : "Todavía no hay un modelo de IA activo. Ve a Ajustes para configurarlo."
+    ready: state.llm.ok,
+    reason: state.llm.ok ? "" : "El modelo local no está disponible. Reinicia la aplicación."
   };
 }
 
-function normalizeSettings(raw = {}, availableModels = state.availableModels) {
-  const merged = { ...DEFAULT_SETTINGS, ...raw };
-  if (!merged.currentModel && merged.ollamaModel) {
-    merged.currentModel = merged.ollamaModel;
-  }
-  if (!merged.currentModel && availableModels[0]?.name) {
-    merged.currentModel = availableModels[0].name;
-  }
-  return merged;
+function normalizeSettings(raw = {}) {
+  return { ...DEFAULT_SETTINGS, ...raw };
 }
 
 function cloneSettings(source = state.settingsDraft || state.settings) {
-  return normalizeSettings({ ...source }, state.availableModels);
+  return normalizeSettings({ ...source });
 }
 
 function openLoadingPanel({ title, detail, cancelable = false, requestId = "" }) {
@@ -561,32 +530,14 @@ async function bootstrap() {
   const payload = await window.bridge.bootstrap();
   state.lessons = payload.lessons || [];
   state.profile = migrateProfile(payload.profile || defaultProfile);
-  state.availableModels = payload.availableModels || [];
-  state.ollama = payload.ollama || state.ollama;
-  state.settings = normalizeSettings(payload.settings || {}, state.availableModels);
+  state.llm = payload.llm || state.llm;
+  state.settings = normalizeSettings(payload.settings || {});
   state.machineId = payload.machineId || "";
   state.dataPath = payload.dataPath || "";
   state.profileDraft = migrateProfile(state.profile);
   state.practiceMode = state.settings.responseMode;
   state.selectedUnit = state.lessons[0]?.unit || null;
   state.page = state.profile.onboardingCompleted ? "lessons" : "profile";
-
-  const requiredModel = payload.requiredModel || "gemma4:e2b";
-  const hasRequired = state.availableModels.some((m) => m.name === requiredModel);
-
-  if (state.ollama.ok && !hasRequired) {
-    await pullModel(requiredModel);
-  }
-
-  if (!state.settings.currentModel || !state.availableModels.some((m) => m.name === state.settings.currentModel)) {
-    state.settings.currentModel = requiredModel;
-  }
-
-  try {
-    await window.bridge.saveSettings(state.settings);
-  } catch {
-    // Render even when persistence is not available.
-  }
 
   await sleep(450);
   closeLoadingPanel();
@@ -616,32 +567,8 @@ function getProfileAnimal() {
     : "bear";
 }
 
-function currentModelInfo() {
-  return state.availableModels.find((item) => item.name === state.settings.currentModel) || null;
-}
-
 function currentModelSupportsVision() {
-  const model = currentModelInfo();
-  const haystack = [
-    state.settings.currentModel,
-    model?.details?.family,
-    ...(model?.details?.families || [])
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-
-  return VISION_MODEL_PATTERNS.some((pattern) => haystack.includes(pattern));
-}
-
-function visionModels() {
-  return state.availableModels.filter((m) => {
-    const haystack = [m.name, m.details?.family, ...(m.details?.families || [])]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase();
-    return VISION_MODEL_PATTERNS.some((p) => haystack.includes(p));
-  });
+  return true; // gemma4:e2b supports vision natively
 }
 
 function resetLessonAssistState() {
@@ -696,24 +623,11 @@ function renderLessonOverlay() {
   }
 
   if (state.lessonUi.cropAction.open && state.lessonUi.cropRect) {
-    const vms = visionModels();
-    const selectedVisionModel = state.lessonUi.cropAction.visionModel || vms[0]?.name || "";
-    const modelOptions = vms.map((m) =>
-      `<option value="${m.name}" ${m.name === selectedVisionModel ? "selected" : ""}>${m.name}</option>`
-    ).join("");
-
     parts.push(`
       <div class="lesson-floating-menu" style="left:${state.lessonUi.cropAction.x}px;top:${state.lessonUi.cropAction.y}px;">
-        ${vms.length > 0 ? `
-          <div class="crop-vision-row">
-            <button class="btn primary" data-action="ask-image-selection">¿Qué es esto?</button>
-            <select class="crop-model-select" data-action="vision-model-change">
-              ${modelOptions}
-            </select>
-          </div>
-        ` : `
-          <span class="crop-no-vision">Sin modelo con visión disponible</span>
-        `}
+        <div class="crop-vision-row">
+          <button class="btn primary" data-action="ask-image-selection">¿Qué es esto?</button>
+        </div>
         <button class="btn secondary" data-action="clear-crop">Limpiar</button>
       </div>
     `);
@@ -1961,7 +1875,7 @@ function renderTrackingPage() {
       return acc;
     }, {});
 
-  const analysisDisabled = state.studentAnalysis.busy || !state.settings.currentModel;
+  const analysisDisabled = state.studentAnalysis.busy || !state.llm.ok;
 
   return `
     <div class="stack">
@@ -2235,24 +2149,6 @@ function renderOnboarding() {
   `;
 }
 
-function modelOptions(selected, { placeholder = "Selecciona un modelo" } = {}) {
-  const availableNames = new Set(state.availableModels.map((m) => m.name));
-  const seen = new Set();
-  let html = placeholder ? `<option value="">${escapeHtml(placeholder)}</option>` : "";
-
-  for (const model of state.availableModels) {
-    seen.add(model.name);
-    html += `<option value="${escapeHtml(model.name)}" ${selected === model.name ? "selected" : ""}>${escapeHtml(model.name)}</option>`;
-  }
-
-  for (const name of PULLABLE_MODELS) {
-    if (!seen.has(name)) {
-      html += `<option value="${escapeHtml(name)}" ${selected === name ? "selected" : ""}>${escapeHtml(name)} (descargar)</option>`;
-    }
-  }
-
-  return html;
-}
 
 function renderSettingsModal() {
   const draft = cloneSettings();
@@ -2263,7 +2159,7 @@ function renderSettingsModal() {
         <div class="modal-header">
           <div>
             <h3 style="margin:0;">Ajustes</h3>
-            <p class="muted">Elige el modelo de IA y las preferencias de tu cuaderno.</p>
+            <p class="muted">Preferencias de tu cuaderno.</p>
           </div>
           <button class="ghost-btn" data-action="close-settings">Cerrar</button>
         </div>
@@ -2271,22 +2167,9 @@ function renderSettingsModal() {
           <div class="card stack">
             <div>
               <strong>Modelo de IA</strong>
-              <p class="muted">El modelo de IA que usará tu cuaderno para ayudarte.</p>
+              <p class="muted">gemma4:e2b (local, via llama.cpp)</p>
             </div>
-            <label>
-              <span class="muted">Dirección de la IA</span>
-              <input data-settings-field="ollamaBaseUrl" value="${escapeHtml(draft.ollamaBaseUrl)}" />
-            </label>
-            <label>
-              <span class="muted">Modelo activo</span>
-              <select data-settings-field="currentModel">
-                ${modelOptions(draft.currentModel)}
-              </select>
-            </label>
-            <p class="muted">${escapeHtml(state.ollama.message)}</p>
-            <div class="row">
-              <button class="btn secondary" data-action="refresh-models">Actualizar modelos</button>
-            </div>
+            <p class="muted">${escapeHtml(state.llm.message)}</p>
           </div>
           <label>
             <span class="muted">Modo de respuesta por defecto</span>
@@ -2299,29 +2182,11 @@ function renderSettingsModal() {
           <div class="card stack">
             <div>
               <strong>Modo avanzado</strong>
-              <p class="muted">Activa el modo avanzado para una ayuda más personalizada y adaptada a ti.</p>
+              <p class="muted">Activa el modo avanzado para una ayuda mas personalizada y adaptada a ti.</p>
             </div>
             <label style="flex-direction:row;align-items:center;gap:0.75rem;">
               <input type="checkbox" data-settings-checkbox="agentMode" ${draft.agentMode ? "checked" : ""} />
               <span>Activar modo agente</span>
-            </label>
-            <label>
-              <span class="muted">Modelo rápido (recomendado: qwen3:0.6b)</span>
-              <select data-settings-field="agentRouterModel">
-                ${modelOptions(draft.agentRouterModel, { placeholder: "Usar modelo principal" })}
-              </select>
-            </label>
-            <label>
-              <span class="muted">Modelo tutor (recomendado: gemma4:e2b)</span>
-              <select data-settings-field="agentTutorModel">
-                ${modelOptions(draft.agentTutorModel, { placeholder: "Usar modelo principal" })}
-              </select>
-            </label>
-            <label>
-              <span class="muted">Modelo de verificación (recomendado: functiongemma)</span>
-              <select data-settings-field="agentFunctionModel">
-                ${modelOptions(draft.agentFunctionModel, { placeholder: "Usar modelo principal" })}
-              </select>
             </label>
           </div>
           <div class="row">
@@ -2818,7 +2683,7 @@ async function maybeMarkCurrentConceptKnown() {
 
 async function generateStudyDeck(question, classification, options = {}) {
   const concepts = knownConcepts(state.profile).map((item) => item.topic);
-  const answer = await askWithOllama([
+  const answer = await askWithLlm([
     { role: "system", content: studyDeckPrompt },
     {
       role: "user",
@@ -2837,7 +2702,7 @@ async function generateStudyDeck(question, classification, options = {}) {
 
 async function generateExercisePlan(question, classification, options = {}) {
   const concepts = knownConcepts(state.profile).map((item) => item.topic);
-  const answer = await askWithOllama([
+  const answer = await askWithLlm([
     { role: "system", content: exerciseTutorPrompt },
     {
       role: "user",
@@ -2856,7 +2721,7 @@ async function generateExercisePlan(question, classification, options = {}) {
 }
 
 async function generateExerciseTrace(question, options = {}) {
-  const answer = await askWithOllama([
+  const answer = await askWithLlm([
     { role: "system", content: exerciseTracePrompt },
     { role: "user", content: buildExerciseTraceUserPrompt(question, 4) }
   ], options);
@@ -2865,14 +2730,12 @@ async function generateExerciseTrace(question, options = {}) {
 }
 
 async function handleStudyQuestionAgentMode(question, options = {}) {
-  const models = resolveAgentModels(state.settings);
   const askFn = makeAgentAskFn();
   const sessionId = createLocalId("session");
 
   const pipelineResult = await runTutorPipeline(question, sessionId, {
     profile: state.profile,
-    askFn,
-    models
+    askFn
   });
 
   if (pipelineResult.isOffTopic) {
@@ -2948,7 +2811,7 @@ async function handleStudyQuestion(question, options = {}) {
     return handleStudyQuestionAgentMode(question, options);
   }
 
-  const scopeText = await askWithOllama([
+  const scopeText = await askWithLlm([
     { role: "system", content: kidMathGatePrompt },
     { role: "user", content: buildKidMathGateUserPrompt(question) }
   ], {
@@ -2999,7 +2862,7 @@ async function handleStudyQuestion(question, options = {}) {
   }
 
   const registeredConcepts = knownConcepts(state.profile).map((item) => item.topic);
-  const classificationText = await askWithOllama([
+  const classificationText = await askWithLlm([
     { role: "system", content: studyClassifierPrompt },
     { role: "user", content: buildClassifierUserPrompt(question, registeredConcepts) }
   ], options);
@@ -3161,7 +3024,7 @@ async function runTextExplanation() {
   });
 
   try {
-    const answer = await askWithOllama([
+    const answer = await askWithLlm([
       { role: "system", content: contextFlashcardPrompt },
       { role: "user", content: buildContextFlashcardUserPrompt(state.selectedText) }
     ], { requestId });
@@ -3227,8 +3090,7 @@ async function runTextExplanation() {
 }
 
 async function runImageExplanation() {
-  const visionModel = state.lessonUi.cropAction?.visionModel;
-  if (!state.lessonUi.cropRect || !visionModel || !inferenceReadiness().ready) return;
+  if (!state.lessonUi.cropRect || !inferenceReadiness().ready) return;
 
   const frame = document.getElementById("lesson-frame");
   if (!frame) return;
@@ -3257,14 +3119,14 @@ async function runImageExplanation() {
 
     if (isRequestCancelled(requestId)) return;
 
-    const answer = await askWithOllama([
+    const answer = await askWithLlm([
       { role: "system", content: contextFlashcardPrompt },
       {
         role: "user",
         content: buildVisualFlashcardUserPrompt(),
         images: [capture.base64]
       }
-    ], { requestId, model: visionModel });
+    ], { requestId });
     if (isRequestCancelled(requestId)) return;
     const payload = normalizeContextFlashcards(safeJsonParse(answer, {}), "recorte visual", "recorte visual");
     const cards = payload.cards.length
@@ -3310,13 +3172,10 @@ async function runImageExplanation() {
       return;
     }
     const msg = String(error?.message || "");
-    const isModelError = /500|no.*support|not.*support|multimodal|imagen|image/i.test(msg);
     openFlashcards({
       source: "visual-help",
       title: "No pude analizar el recorte",
-      subtitle: isModelError
-        ? "El modelo activo no soporta imagenes. Activa un modelo con vision desde Configuracion LLM."
-        : "Intenta hacer un recorte un poco mas grande o mas claro.",
+      subtitle: "Intenta hacer un recorte un poco mas grande o mas claro.",
       cards: fallbackExplanationCards(`[Error] ${msg}`, "Recorte visual").map((card) => ({ title: card.title, body: card.body }))
     });
   } finally {
@@ -3336,14 +3195,14 @@ function handleInput(event) {
     state.settingsDraft = normalizeSettings({
       ...(state.settingsDraft || state.settings),
       [target.dataset.settingsField]: target.value
-    }, state.availableModels);
+    });
   }
 
   if (target.dataset.settingsCheckbox) {
     state.settingsDraft = normalizeSettings({
       ...(state.settingsDraft || state.settings),
       [target.dataset.settingsCheckbox]: target.checked
-    }, state.availableModels);
+    });
   }
 
   if (target.dataset.stepInputId && state.practiceSession) {
@@ -3576,7 +3435,7 @@ async function handleClick(event) {
   }
 
   if (action === "open-student-analysis") {
-    if (!state.settings.currentModel || state.studentAnalysis.busy) return;
+    if (!state.llm.ok || state.studentAnalysis.busy) return;
     state.studentAnalysis = { open: true, busy: true, text: "" };
     render();
     try {
@@ -3608,10 +3467,10 @@ Sé conciso pero preciso. Usa bullet points. NO uses markdown complejo, solo bul
         ...sessions.map((s) => `  - [${s.kind}] ${s.topic} (${(s.events || []).length} eventos, estado: ${s.status})`)
       ].join("\n");
 
-      const text = await askWithOllama([
+      const text = await askWithLlm([
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt }
-      ], { model: state.settings.agentTutorModel || state.settings.currentModel, maxTokens: 600, temperature: 0.3 });
+      ], { maxTokens: 600, temperature: 0.3 });
 
       state.studentAnalysis = { open: true, busy: false, text: String(text || "No se pudo generar el analisis.") };
     } catch (err) {
@@ -3662,7 +3521,7 @@ Sé conciso pero preciso. Usa bullet points. NO uses markdown complejo, solo bul
       focusArea: state.profileDraft.focusArea || "Resolucion de problemas",
       responseMode: state.profileDraft.responseMode || "coach"
     });
-    state.settings = normalizeSettings({ ...state.settings, responseMode: state.profile.responseMode }, state.availableModels);
+    state.settings = normalizeSettings({ ...state.settings, responseMode: state.profile.responseMode });
     state.practiceMode = state.profile.responseMode;
     state.profileDraft = migrateProfile(state.profile);
     await window.bridge.saveProfile(state.profile);
@@ -3713,45 +3572,13 @@ Sé conciso pero preciso. Usa bullet points. NO uses markdown complejo, solo bul
     return;
   }
 
-  if (action === "refresh-models" && state.settingsDraft) {
-    await refreshOllamaModels(state.settingsDraft.ollamaBaseUrl);
-  }
-
   if (action === "save-settings" && state.settingsDraft) {
-    const nextSettings = normalizeSettings(state.settingsDraft, state.availableModels);
-    const availableNames = new Set(state.availableModels.map((m) => m.name));
-    const modelFields = ["currentModel", "agentRouterModel", "agentTutorModel", "agentFunctionModel"];
-    const missingModels = [...new Set(
-      modelFields.map((f) => nextSettings[f]).filter((name) => name && !availableNames.has(name))
-    )];
-
+    const nextSettings = normalizeSettings(state.settingsDraft);
     state.settingsOpen = false;
     state.settingsDraft = null;
-
-    for (const modelName of missingModels) {
-      await pullModel(modelName);
-    }
-
-    const modelChanged = nextSettings.currentModel !== state.settings.currentModel;
-    const urlChanged = nextSettings.ollamaBaseUrl !== state.settings.ollamaBaseUrl;
-    const shouldShowLoading = (modelChanged || urlChanged) && missingModels.length === 0;
-
-    if (shouldShowLoading) {
-      openLoadingPanel({
-        title: "Preparando tutor local",
-        detail: "Espera un momento mientras actualizo la configuracion del tutor."
-      });
-    }
-
     state.settings = nextSettings;
     state.practiceMode = state.settings.responseMode;
     await window.bridge.saveSettings(state.settings);
-
-    if (shouldShowLoading) {
-      await refreshOllamaModels(state.settings.ollamaBaseUrl);
-      await sleep(650);
-      closeLoadingPanel();
-    }
   }
 
   if (action === "toggle-crop-mode") {
@@ -3771,12 +3598,6 @@ Sé conciso pero preciso. Usa bullet points. NO uses markdown complejo, solo bul
 
   if (action === "explain-selection") {
     await runTextExplanation();
-    return;
-  }
-
-  if (action === "vision-model-change") {
-    state.lessonUi.cropAction = { ...state.lessonUi.cropAction, visionModel: el.value };
-    render();
     return;
   }
 
@@ -3874,7 +3695,6 @@ Sé conciso pero preciso. Usa bullet points. NO uses markdown complejo, solo bul
 
       if (state.practiceSession.agentMode && state.practiceSession.tutorState) {
         const retryCount = state.practiceSession.stepFailureCounts?.[step.id] || 0;
-        const models = resolveAgentModels(state.settings);
         const askFn = makeAgentAskFn();
         openLoadingPanel({ title: "Tutor evaluando...", cancelable: false });
         let turnResult;
@@ -3882,7 +3702,7 @@ Sé conciso pero preciso. Usa bullet points. NO uses markdown complejo, solo bul
           turnResult = await runTurnPipeline(
             state.practiceSession.tutorState,
             { step, answer: value, retryCount },
-            { profile: state.profile, askFn, models }
+            { profile: state.profile, askFn }
           );
         } finally {
           closeLoadingPanel();
@@ -4101,76 +3921,22 @@ async function handleDrop(event) {
   render();
 }
 
-async function pullModel(modelName) {
-  openLoadingPanel({
-    title: `Descargando ${modelName}`,
-    detail: "Preparando descarga del modelo..."
-  });
-
-  const removeListener = window.bridge.onPullProgress((data) => {
-    let detail = data.status || "Descargando...";
-    if (data.total > 0) {
-      const pct = Math.round((data.completed / data.total) * 100);
-      const totalMB = (data.total / 1e6).toFixed(0);
-      detail = `${data.status} — ${pct}% de ${totalMB} MB`;
-    }
-    state.loadingPanel = { ...state.loadingPanel, detail };
-    const el = document.getElementById("pull-progress-detail");
-    if (el) {
-      el.textContent = detail;
-    }
-  });
-
-  try {
-    await window.bridge.pullModel({
-      baseUrl: state.settings.ollamaBaseUrl,
-      modelName
-    });
-    await refreshOllamaModels(state.settings.ollamaBaseUrl);
-  } catch (error) {
-    state.ollama = { ok: false, message: `Error al descargar ${modelName}: ${error.message}` };
-  } finally {
-    removeListener();
-    closeLoadingPanel();
-  }
-}
-
-async function refreshOllamaModels(baseUrl) {
-  try {
-    state.availableModels = await window.bridge.listModels(baseUrl);
-    state.ollama = {
-      ok: true,
-      message: state.availableModels.length
-        ? `${state.availableModels.length} modelo${state.availableModels.length !== 1 ? "s" : ""} disponible${state.availableModels.length !== 1 ? "s" : ""}.`
-        : "La IA está conectada, pero no hay modelos descargados."
-    };
-    state.settings = normalizeSettings(state.settings, state.availableModels);
-    if (state.settingsDraft) {
-      state.settingsDraft = normalizeSettings(state.settingsDraft, state.availableModels);
-    }
-  } catch (error) {
-    state.ollama = { ok: false, message: error.message };
-  }
-}
-
-async function askWithOllama(messages, options = {}) {
-  const model = options.model || state.settings.currentModel;
-  if (!model) {
-    throw new Error("Activa un modelo local desde Configuracion LLM.");
+async function askWithLlm(messages, options = {}) {
+  if (!state.llm.ok) {
+    throw new Error("El modelo local no está disponible. Reinicia la aplicación.");
   }
 
   return window.bridge.chat({
-    baseUrl: state.settings.ollamaBaseUrl,
-    model,
     messages,
     requestId: options.requestId || "",
     maxTokens: Number.isFinite(Number(options.maxTokens)) ? Number(options.maxTokens) : null,
-    temperature: Number.isFinite(Number(options.temperature)) ? Number(options.temperature) : null
+    temperature: Number.isFinite(Number(options.temperature)) ? Number(options.temperature) : null,
+    forceJson: options.forceJson === true
   });
 }
 
 function makeAgentAskFn() {
-  return async (messages, opts = {}) => askWithOllama(messages, opts);
+  return async (messages, opts = {}) => askWithLlm(messages, { ...opts, forceJson: true });
 }
 
 function wireLessonFrame() {
@@ -4230,15 +3996,10 @@ function wireLessonFrame() {
 
       state.lessonUi.cropMode = false;
       state.lessonUi.cropRect = rect;
-      const _vms = visionModels();
-      const _defaultVisionModel = currentModelSupportsVision()
-        ? state.settings.currentModel
-        : (_vms[0]?.name || "");
       state.lessonUi.cropAction = {
         open: true,
         x: clamp(rect.x + rect.width - 120, 10, Math.max(10, shell.clientWidth - 220)),
-        y: clamp(rect.y + rect.height + 12, 10, Math.max(10, shell.clientHeight - 80)),
-        visionModel: _defaultVisionModel
+        y: clamp(rect.y + rect.height + 12, 10, Math.max(10, shell.clientHeight - 80))
       };
       syncCropCursor();
       syncLessonUi();
