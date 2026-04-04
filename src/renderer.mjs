@@ -227,8 +227,23 @@ const cancelledRequestIds = new Set();
 const root = document.getElementById("app");
 const modalRoot = document.getElementById("modal-root");
 
+let _trailCache = { key: "", html: "" };
+let _renderScheduled = false;
+
 render();
-await bootstrap();
+try {
+  await bootstrap();
+} catch (err) {
+  console.error("[bootstrap] Fatal error:", err);
+  state.loadingPanel = {
+    open: true,
+    title: "Error al iniciar",
+    detail: String(err?.message || err),
+    cancelable: false,
+    requestId: ""
+  };
+  render();
+}
 document.addEventListener("click", handleClick);
 document.addEventListener("input", handleInput);
 document.addEventListener("submit", handleSubmit);
@@ -531,6 +546,7 @@ async function bootstrap() {
   });
 
   const payload = await window.bridge.bootstrap();
+
   state.lessons = payload.lessons || [];
   state.profile = migrateProfile(payload.profile || defaultProfile);
   state.llm = payload.llm || state.llm;
@@ -745,11 +761,11 @@ function renderFlashcardModal() {
           <button class="ghost-btn" data-action="close-flashcards">Cerrar</button>
         </div>
         <div class="flashcard-stage ${isGameCard ? "game-view" : ""}">
-          <button class="flashcard-arrow" data-action="flashcard-prev" ${state.flashcards.index === 0 ? "disabled" : ""}>←</button>
+          <button class="flashcard-arrow" data-action="flashcard-prev" ${state.flashcards.index === 0 ? "disabled" : ""} aria-label="Tarjeta anterior">←</button>
           <div class="flashcard-content-wrap ${isGameCard ? "game-view" : ""}">
             ${renderModalFlashcardCard(card)}
           </div>
-          <button class="flashcard-arrow" data-action="flashcard-next" ${state.flashcards.index >= state.flashcards.cards.length - 1 ? "disabled" : ""}>→</button>
+          <button class="flashcard-arrow" data-action="flashcard-next" ${state.flashcards.index >= state.flashcards.cards.length - 1 ? "disabled" : ""} aria-label="Tarjeta siguiente">→</button>
         </div>
       </div>
     </div>
@@ -977,25 +993,44 @@ function conceptMetrics() {
   return [...buckets.values()].sort((left, right) => right.actions - left.actions || right.sessions - left.sessions);
 }
 
+function scheduleRender() {
+  if (_renderScheduled) return;
+  _renderScheduled = true;
+  requestAnimationFrame(() => {
+    _renderScheduled = false;
+    render();
+  });
+}
+
 function render() {
-  root.innerHTML = renderShell();
-  modalRoot.innerHTML = [
-    state.settingsOpen ? renderSettingsModal() : "",
-    renderFlashcardModal(),
-    renderExerciseOverlayModal(),
-    renderTrackingDetailModal(),
-    renderStudentAnalysisModal(),
-    state.loadingPanel.open ? renderLoadingPanel() : ""
-  ].join("");
-  wireLessonFrame();
-  syncLessonUi();
-  enhanceMath(document.querySelector(".page-content"));
-  enhanceMath(document.querySelector(".book-page-main"));
-  enhanceMath(document.querySelector(".book-page-reader-content"));
-  enhanceMath(document.querySelector(".chat-feed"));
-  enhanceMath(document.querySelector(".practice-session"));
-  enhanceMath(modalRoot);
-  scrollPendingTarget();
+  try {
+    root.innerHTML = renderShell();
+    modalRoot.innerHTML = [
+      state.settingsOpen ? renderSettingsModal() : "",
+      renderFlashcardModal(),
+      renderExerciseOverlayModal(),
+      renderTrackingDetailModal(),
+      renderStudentAnalysisModal(),
+      state.loadingPanel.open ? renderLoadingPanel() : ""
+    ].join("");
+    wireLessonFrame();
+    syncLessonUi();
+    enhanceMath(document.querySelector(".page-content"));
+    enhanceMath(document.querySelector(".book-page-main"));
+    enhanceMath(document.querySelector(".book-page-reader-content"));
+    enhanceMath(document.querySelector(".chat-feed"));
+    enhanceMath(document.querySelector(".practice-session"));
+    enhanceMath(modalRoot);
+    scrollPendingTarget();
+  } catch (err) {
+    console.error("[render] Crash:", err);
+    root.innerHTML = `<div style="padding:40px;font-family:sans-serif;color:#c00;">
+      <h2>Error de renderizado</h2>
+      <pre style="white-space:pre-wrap;background:#fff3f3;padding:16px;border-radius:8px;">${String(err?.stack || err)}</pre>
+      <p>Page: ${state.page} | Lessons: ${state.lessons?.length} | Loading: ${state.loadingPanel?.open}</p>
+    </div>`;
+    modalRoot.innerHTML = "";
+  }
 }
 
 function scrollPendingTarget() {
@@ -1064,17 +1099,17 @@ function renderOpenNotebook() {
         <!-- Navigation sidebar -->
         <nav class="nav-tabs-bar">
           ${navTabs.map((tab) => `
-            <button class="nav-tab ${state.page === tab.page ? "active" : ""}" data-action="nav" data-page="${tab.page}">
+            <button class="nav-tab ${state.page === tab.page ? "active" : ""}" data-action="nav" data-page="${tab.page}" aria-label="${tab.label}">
               <span class="nav-tab-icon">${tab.icon}</span>
               <span class="nav-tab-text">${tab.label}</span>
             </button>
           `).join("")}
-          <button class="nav-tab" data-action="open-settings">
+          <button class="nav-tab" data-action="open-settings" aria-label="Configuración">
             <span class="nav-tab-icon">⚙️</span>
             <span class="nav-tab-text">Config</span>
           </button>
           <div style="flex:1;"></div>
-          <button class="nav-tab nav-tab-close" data-action="nav" data-page="home">
+          <button class="nav-tab nav-tab-close" data-action="nav" data-page="home" aria-label="Cerrar cuaderno">
             <span class="nav-tab-icon">📕</span>
             <span class="nav-tab-text">Cerrar</span>
           </button>
@@ -1262,6 +1297,8 @@ function renderLessonsContent() {
 }
 
 function renderLessonTrail(lessons, completed, next) {
+  const cacheKey = `${lessons.length}-${state.bookPage}-${completed.size}`;
+  if (_trailCache.key === cacheKey) return _trailCache.html;
   const LESSONS_PER_SPREAD = 6;
   const animal = ANIMAL_AVATARS[getProfileAnimal()] || ANIMAL_AVATARS.bear;
 
@@ -1293,7 +1330,7 @@ function renderLessonTrail(lessons, completed, next) {
   );
   const mascotIdx = currentIdx >= 0 ? currentIdx : (lessons.findIndex((l) => !completed.has(`${l.unit}::${l.title}`)));
 
-  return `
+  const result = `
     ${svgPath ? `<svg class="trail-svg" viewBox="0 0 100 100" preserveAspectRatio="none"><path d="${svgPath}" stroke-dasharray="3 4" /></svg>` : ""}
     ${lessons.map((lesson, i) => {
       const key = `${lesson.unit}::${lesson.title}`;
@@ -1321,6 +1358,8 @@ function renderLessonTrail(lessons, completed, next) {
       `;
     }).join("")}
   `;
+  _trailCache = { key: cacheKey, html: result };
+  return result;
 }
 
 function renderReaderLeftPage() {
@@ -2689,7 +2728,7 @@ async function maybeMarkCurrentConceptKnown() {
     await markTutorSessionStatus(session.sessionId, "completed");
   }
   await saveProfileState();
-  render();
+  scheduleRender();
 }
 
 async function generateStudyDeck(question, classification, options = {}) {
@@ -3022,7 +3061,7 @@ async function runTextExplanation() {
       ],
       sessionId
     });
-    render();
+    scheduleRender();
     return;
   }
 
@@ -3097,7 +3136,7 @@ async function runTextExplanation() {
   } finally {
     finishRequest(requestId);
   }
-  render();
+  scheduleRender();
 }
 
 async function runImageExplanation() {
@@ -3192,7 +3231,7 @@ async function runImageExplanation() {
   } finally {
     finishRequest(requestId);
   }
-  render();
+  scheduleRender();
 }
 
 function handleInput(event) {
@@ -3267,7 +3306,7 @@ async function handleSubmit(event) {
   } finally {
     state.isThinking = false;
     finishRequest(requestId);
-    render();
+    scheduleRender();
   }
 }
 
@@ -3289,7 +3328,7 @@ async function handleClick(event) {
     cancelledRequestIds.add(state.loadingPanel.requestId);
     await window.bridge.cancelChat(state.loadingPanel.requestId);
     closeLoadingPanel();
-    render();
+    scheduleRender();
     return;
   }
 
@@ -3306,19 +3345,19 @@ async function handleClick(event) {
     if (shouldResumeExercise) {
       openExerciseOverlay();
     }
-    render();
+    scheduleRender();
     return;
   }
 
   if (action === "flashcard-prev") {
     state.flashcards.index = Math.max(0, state.flashcards.index - 1);
-    render();
+    scheduleRender();
     return;
   }
 
   if (action === "flashcard-next") {
     state.flashcards.index = Math.min(state.flashcards.cards.length - 1, state.flashcards.index + 1);
-    render();
+    scheduleRender();
     return;
   }
 
@@ -3328,7 +3367,7 @@ async function handleClick(event) {
       ...state.studentPanel,
       [`${section}Open`]: !state.studentPanel[`${section}Open`]
     };
-    render();
+    scheduleRender();
     return;
   }
 
@@ -3337,7 +3376,7 @@ async function handleClick(event) {
       ...state.studentPanel,
       compact: !state.studentPanel.compact
     };
-    render();
+    scheduleRender();
     return;
   }
 
@@ -3545,7 +3584,7 @@ Sé conciso pero preciso. Usa bullet points. NO uses markdown complejo, solo bul
     state.settingsOpen = true;
     window.bridge.listModels().then(models => {
       state.ggufModels = models;
-      render();
+      scheduleRender();
     });
   }
 
@@ -3556,26 +3595,26 @@ Sé conciso pero preciso. Usa bullet points. NO uses markdown complejo, solo bul
 
   if (action === "open-exercise-overlay") {
     openExerciseOverlay(Math.min(state.exerciseOverlay.index || 0, maxExerciseOverlayIndex()));
-    render();
+    scheduleRender();
     return;
   }
 
   if (action === "close-exercise-overlay") {
     closeExerciseOverlay();
-    render();
+    scheduleRender();
     return;
   }
 
   if (action === "exercise-prev") {
     state.exerciseOverlay.index = Math.max(0, state.exerciseOverlay.index - 1);
-    render();
+    scheduleRender();
     return;
   }
 
   if (action === "exercise-next") {
     const maxIndex = Math.min(maxExerciseOverlayIndex(), state.practiceSession?.solution?.steps?.length || 0);
     state.exerciseOverlay.index = Math.min(maxIndex, state.exerciseOverlay.index + 1);
-    render();
+    scheduleRender();
     return;
   }
 
@@ -3643,7 +3682,7 @@ Sé conciso pero preciso. Usa bullet points. NO uses markdown complejo, solo bul
       delete game.placements[button.dataset.leftId];
       game.feedback = "";
       game.completed = false;
-      render();
+      scheduleRender();
       return;
     }
   }
@@ -3850,7 +3889,7 @@ Sé conciso pero preciso. Usa bullet points. NO uses markdown complejo, solo bul
       stepResults[stepId] = { ...stepResults[stepId], feedback: thumb };
       state.practiceSession = { ...state.practiceSession, stepResults };
     }
-    render();
+    scheduleRender();
     return;
   }
 
@@ -3859,13 +3898,13 @@ Sé conciso pero preciso. Usa bullet points. NO uses markdown complejo, solo bul
       open: true,
       actionCode: button.dataset.actionCode || null
     };
-    render();
+    scheduleRender();
     return;
   }
 
   if (action === "close-tracking-detail") {
     state.trackingDetail = { open: false, actionCode: null };
-    render();
+    scheduleRender();
     return;
   }
 
@@ -3878,11 +3917,11 @@ Sé conciso pero preciso. Usa bullet points. NO uses markdown complejo, solo bul
       cards: state.practiceSession.deck.cards,
       sessionId: state.practiceSession.sessionId
     });
-    render();
+    scheduleRender();
     return;
   }
 
-  render();
+  scheduleRender();
 }
 
 function handleDragStart(event) {
@@ -3949,7 +3988,7 @@ async function handleDrop(event) {
     }
   }
 
-  render();
+  scheduleRender();
 }
 
 async function askWithLlm(messages, options = {}) {
@@ -4053,8 +4092,12 @@ function wireLessonFrame() {
       state.lessonUi.cropAction = { ...state.lessonUi.cropAction, open: false };
       syncLessonUi();
     });
+    let _lastCropMove = 0;
     doc.addEventListener("mousemove", (event) => {
       if (!state.lessonUi.cropMode || !state.lessonUi.dragStart) return;
+      const now = performance.now();
+      if (now - _lastCropMove < 16) return;
+      _lastCropMove = now;
       event.preventDefault();
       const end = pointInShell(event.clientX, event.clientY);
       const start = state.lessonUi.dragStart;

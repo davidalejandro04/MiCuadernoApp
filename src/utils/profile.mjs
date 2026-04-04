@@ -28,13 +28,18 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+const _topicKeyCache = new Map();
 function normalizeTopicKey(value = "") {
-  return String(value)
+  const cached = _topicKeyCache.get(value);
+  if (cached !== undefined) return cached;
+  const result = String(value)
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
+  _topicKeyCache.set(value, result);
+  return result;
 }
 
 function uniqueTopics(values = []) {
@@ -185,7 +190,11 @@ function mergeLessonFlashcardGroups(existing, incoming) {
   };
 }
 
+const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000;
+const _migratedProfiles = new WeakSet();
+
 export function migrateProfile(input = {}) {
+  if (typeof input === "object" && input !== null && _migratedProfiles.has(input)) return input;
   const conceptProgress = Array.isArray(input.conceptProgress)
     ? input.conceptProgress
         .map((item) => normalizeConceptEntry(item))
@@ -216,17 +225,23 @@ export function migrateProfile(input = {}) {
         .filter(Boolean)
     : [];
 
-  return {
+  let activity = Array.isArray(input.activity) ? input.activity : [];
+  const cutoff = Date.now() - NINETY_DAYS_MS;
+  activity = activity.filter(a => !a.ts || new Date(a.ts).getTime() >= cutoff);
+
+  const result = {
     ...defaultProfile,
     ...input,
     completed: Array.isArray(input.completed) ? input.completed : [],
-    activity: Array.isArray(input.activity) ? input.activity : [],
+    activity,
     conceptProgress,
     tutorSessions,
     struggleSignals,
     lessonFlashcards,
     interactionLog: Array.isArray(input.interactionLog) ? input.interactionLog : []
   };
+  _migratedProfiles.add(result);
+  return result;
 }
 
 export function setupProfile(profile, payload) {

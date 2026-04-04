@@ -5,7 +5,7 @@ const SYSTEM_PROMPT = `Resume sesion de tutoria de mates. JSON sin texto extra:
 
 export async function progressAgent(
   { tutorState, sessionEvents = [] },
-  { askFn, maxTokens = 120 }
+  { askFn, maxTokens = 80 }
 ) {
   const completedSps = tutorState.subproblems.filter((sp) => sp.status === "done").length;
   const totalSps = tutorState.subproblems.length;

@@ -1,23 +1,13 @@
 import { safeParseAgentJson } from "./agent-utils.mjs";
 
-const SYSTEM_PROMPT = `Eres un planificador de tutoria de matematicas infantiles en español.
-Tu tarea: descomponer la pregunta del estudiante en 2-3 subproblemas ordenados de facil a dificil.
-
-Responde SOLO con JSON valido, sin texto adicional. Formato exacto:
-{"learning_objective":"objetivo","main_problem":"problema","subproblems":[{"id":"sp1","prompt":"pregunta","expected_answer":"respuesta corta","hint_ladder":["pista general","pista especifica","La respuesta es: X"],"common_misconceptions":["error"]}]}
-
-Reglas:
-- 2-3 subproblemas maximo
-- Respuestas esperadas cortas (1 frase o numero)
-- 3 pistas por subproblema: general, especifica, y la respuesta completa
-- La tercera pista SIEMPRE empieza con "La respuesta es:"
-
-Ejemplo para "¿Es 7 un numero primo?":
-{"learning_objective":"Numeros primos","main_problem":"¿Es 7 primo?","subproblems":[{"id":"sp1","prompt":"¿Entre cuantos numeros se puede dividir exactamente un numero primo?","expected_answer":"Solo entre 1 y el mismo numero","hint_ladder":["Piensa en que hace especial a un primo","Un primo no se puede dividir entre otros numeros","La respuesta es: Solo entre 1 y el mismo numero"],"common_misconceptions":["Confundir primo con impar"]},{"id":"sp2","prompt":"¿7 se puede dividir exactamente entre algun numero que no sea 1 o 7?","expected_answer":"No, solo entre 1 y 7","hint_ladder":["Prueba dividiendo 7 entre 2, 3, 4, 5, 6","Ninguna de esas divisiones da un resultado exacto","La respuesta es: No, 7 solo se divide entre 1 y 7, asi que es primo"],"common_misconceptions":["Pensar que 7/2=3 es exacto"]}]}`;
+const SYSTEM_PROMPT = `Planificador de tutoria matematica. Descompone preguntas en 2-3 subproblemas (facil→dificil).
+Solo JSON valido:
+{"learning_objective":"...","main_problem":"...","subproblems":[{"id":"sp1","prompt":"...","expected_answer":"corta","hint_ladder":["general","especifica","La respuesta es: X"],"common_misconceptions":["error"]}]}
+Reglas: 2-3 subproblemas, respuestas cortas, 3 pistas (la 3a empieza con "La respuesta es:").`;
 
 export async function scaffoldingPlannerAgent(
   { question, learnerModel = null },
-  { askFn, maxTokens = 600 }
+  { askFn, maxTokens = 450 }
 ) {
   const supportLevel = learnerModel?.recommended_support_level || "medium";
 

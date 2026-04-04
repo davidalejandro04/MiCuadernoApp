@@ -12,98 +12,74 @@ export function buildSystemPrompt(mode) {
   }[mode] || "Responde de forma clara y pedagogica.";
 
   return (
-    "Eres un tutor de matematicas en espanol. " +
-    "Solo ayudas con matematicas escolares o universitarias, " +
-    "siempre en espanol y con notacion LaTeX cuando haga falta. " +
+    "Tutor de matematicas en espanol. Solo matematicas escolares/universitarias. Usa LaTeX si hace falta. " +
     stylePrompt
   );
 }
 
 export const explainPrompt =
-  "Eres un tutor de matematicas para estudiantes. " +
-  "Responde solo en JSON valido con esta forma exacta: " +
+  "Tutor de matematicas. Devuelve solo JSON: " +
   '{"concept":"...", "example":"...", "answer":"..."} ' +
-  "donde concept resume el concepto general, example da un ejemplo corto y answer responde directamente la duda del estudiante.";
+  "concept=concepto general, example=ejemplo corto, answer=respuesta directa.";
 
 export function buildExplainUserPrompt(selection) {
   return [
-    "Analiza la siguiente seleccion del estudiante.",
-    "Descompon la respuesta en concepto general, ejemplo corto y respuesta directa.",
-    "No uses markdown ni bloques de codigo. Solo devuelve JSON valido.",
+    "Analiza y descompone en concepto, ejemplo y respuesta directa.",
+    "Solo JSON, sin markdown.",
     `Seleccion: ${selection}`
   ].join(" ");
 }
 
 export const visionExplainPrompt =
-  "Eres un tutor visual de matematicas. " +
-  "Recibiras una imagen recortada de una leccion. " +
-  "Responde solo en JSON valido con esta forma exacta: " +
+  "Tutor visual de matematicas. Recibes imagen de leccion. Devuelve solo JSON: " +
   '{"concept":"...", "example":"...", "answer":"..."} ' +
-  "donde concept identifica el objeto matematico observado, example da un ejemplo cercano y answer responde la pregunta 'que es esto?'.";
+  "concept=objeto matematico, example=ejemplo cercano, answer=respuesta a 'que es esto?'.";
 
 export const contextFlashcardPrompt =
-  "Eres un tutor de matematicas que convierte dudas breves en tarjetas de ayuda. " +
-  "Responde solo en JSON valido con esta forma exacta: " +
+  "Tutor de matematicas. Convierte dudas en tarjetas. Devuelve solo JSON: " +
   '{"needsMoreContext":false,"followUp":"...","topic":"...","cards":[{"title":"...","body":"..."},{"title":"...","body":"..."},{"title":"...","body":"..."}]} ' +
-  "Si la seleccion no tiene suficiente contexto para ayudar de forma responsable, usa needsMoreContext=true y followUp debe pedir que el estudiante seleccione mas texto. " +
-  "Si si hay contexto, genera exactamente 3 tarjetas: concepto general, ejemplo guiado y relacion con lo seleccionado. " +
-  "No uses markdown ni bloques de codigo.";
+  "Si falta contexto: needsMoreContext=true, followUp pide mas texto. " +
+  "Si hay contexto: 3 tarjetas (concepto, ejemplo, relacion). Sin markdown.";
 
 export function buildExplainImageUserPrompt() {
   return [
-    "Observa el recorte de la leccion.",
-    "Identifica el objeto, figura o representacion matematica principal.",
-    "Luego conecta lo que ves con una idea clave y un ejemplo.",
-    "No uses markdown ni bloques de codigo. Solo devuelve JSON valido."
+    "Observa el recorte. Identifica el objeto matematico principal.",
+    "Conecta con idea clave y ejemplo. Solo JSON, sin markdown."
   ].join(" ");
 }
 
 export function buildContextFlashcardUserPrompt(selection) {
   return [
-    "Analiza la seleccion del estudiante dentro de una leccion de matematicas.",
-    "Decide si tiene suficiente contexto.",
-    "Si lo tiene, crea 3 tarjetas: concepto, ejemplo y relacion con la seleccion.",
-    `Seleccion del estudiante: ${selection}`
+    "Analiza la seleccion. Si hay contexto, crea 3 tarjetas: concepto, ejemplo, relacion.",
+    `Seleccion: ${selection}`
   ].join(" ");
 }
 
 export const visualFlashcardPrompt =
-  "Eres un tutor visual de matematicas que convierte recortes de lecciones en tarjetas de ayuda. " +
-  "Recibes una imagen recortada de una leccion. " +
-  "Responde solo en JSON valido con esta forma exacta: " +
+  "Tutor visual de matematicas. Recibes imagen de leccion. Devuelve solo JSON: " +
   '{"topic":"...","cards":[{"title":"...","body":"..."},{"title":"...","body":"..."},{"title":"...","body":"..."}]} ' +
-  "Genera exactamente 3 tarjetas: concepto general, ejemplo guiado y relacion con lo observado en la imagen. " +
-  "No uses markdown ni bloques de codigo.";
+  "3 tarjetas: concepto, ejemplo, relacion con la imagen. Sin markdown.";
 
 export function buildVisualFlashcardUserPrompt() {
   return [
-    "Analiza el recorte visual de una leccion de matematicas.",
-    "Identifica el objeto o idea principal.",
-    "Crea 3 tarjetas: concepto general, ejemplo y relacion con lo que se ve en el recorte.",
-    "No uses markdown ni bloques de codigo. Solo devuelve JSON valido."
+    "Analiza el recorte visual. Identifica la idea principal.",
+    "Crea 3 tarjetas: concepto, ejemplo, relacion. Solo JSON, sin markdown."
   ].join(" ");
 }
 
 export const kidMathGatePrompt =
-  "Clasifica una pregunta. " +
-  "Responde solo con una etiqueta exacta en minusculas: kid_math o not_kid_math. " +
-  "Usa kid_math solo si la pregunta trata sobre matematicas escolares para ninos o adolescentes. " +
-  "Usa not_kid_math si no es matematicas o si requiere contenido avanzado fuera de ese nivel.";
+  "Clasifica la pregunta. Responde solo: kid_math o not_kid_math. " +
+  "kid_math=matematicas escolares para ninos/adolescentes. not_kid_math=lo demas.";
 
 export function buildKidMathGateUserPrompt(question) {
   return `Pregunta: ${question}`;
 }
 
 export const studyClassifierPrompt =
-  "Clasifica preguntas de estudiantes de matematicas. " +
-  "Devuelve solo JSON valido con esta forma exacta: " +
+  "Clasifica preguntas de matematicas. Devuelve solo JSON: " +
   '{"kind":"concept|exercise|non_math","topic":"...","conceptTopic":"...","relatedTopics":["..."],"reason":"..."} ' +
-  "Usa kind=concept si pide entender una idea, definicion, propiedad o comparacion conceptual. " +
-  "Usa kind=exercise si pide resolver, revisar, comprobar o desarrollar un problema concreto. " +
-  "Usa kind=non_math si no es contenido matematico o es conversacion irrelevante para estudiar. " +
-  "conceptTopic debe nombrar el concepto matematico principal necesario para ayudar. " +
-  "topic puede describir el foco inmediato de la pregunta. " +
-  "relatedTopics debe contener solo 0 a 4 temas matematicos breves y utiles.";
+  "concept=idea/definicion/propiedad. exercise=resolver/comprobar problema. non_math=irrelevante. " +
+  "conceptTopic=concepto principal. relatedTopics=0-4 temas utiles.";
 
 export function buildClassifierUserPrompt(question, knownConcepts = []) {
   const known = knownConcepts.length
@@ -111,22 +87,16 @@ export function buildClassifierUserPrompt(question, knownConcepts = []) {
     : "sin conceptos registrados todavia";
 
   return [
-    "Clasifica la siguiente pregunta del estudiante.",
-    `Conceptos ya estudiados: ${known}.`,
+    `Clasifica esta pregunta. Conceptos estudiados: ${known}.`,
     `Pregunta: ${question}`,
-    "No uses markdown ni bloques de codigo. Solo devuelve JSON valido."
+    "Solo JSON, sin markdown."
   ].join(" ");
 }
 
 export const studyDeckPrompt =
-  "Genera tarjetas de estudio para un tutor de matematicas. " +
-  "Devuelve solo JSON valido con esta forma exacta: " +
+  "Genera tarjetas de estudio de matematicas. Devuelve solo JSON: " +
   '{"topic":"...","focusTrail":["..."],"relatedTopics":["..."],"cards":[{"kind":"concept","title":"...","body":"...","checkPrompt":"..."},{"kind":"example","title":"...","body":"...","example":"...","prompt":"..."},{"kind":"game","title":"...","body":"...","gameType":"match-pairs","instructions":"...","pairs":[{"left":"...","right":"..."}]}]} ' +
-  "La secuencia debe ir de conceptos base a concepto objetivo. " +
-  "La primera tarjeta explica el concepto general relevante. " +
-  "La segunda tarjeta da un ejemplo trabajado. " +
-  "La ultima tarjeta debe ser un juego generalizable de tipo game con gameType='match-pairs' y entre 3 y 5 pares. " +
-  "Cada texto debe ser breve, claro y util para un estudiante.";
+  "Secuencia: conceptos base→objetivo. 1a=concepto, 2a=ejemplo, ultima=game match-pairs con 3-5 pares. Textos breves y claros.";
 
 export function buildStudyDeckUserPrompt({
   question,
@@ -139,26 +109,17 @@ export function buildStudyDeckUserPrompt({
   const related = relatedTopics.length ? relatedTopics.join(", ") : "sin temas adicionales";
 
   return [
-    "Crea un set de study cards para este estudiante.",
-    `Pregunta original: ${question}`,
-    `Tema inmediato: ${topic}`,
-    `Concepto principal: ${conceptTopic || topic}`,
-    `Temas relacionados sugeridos: ${related}`,
-    `Conceptos registrados para el estudiante: ${known}`,
-    "Incluye un focusTrail de arriba hacia abajo con los conceptos previos y el objetivo.",
-    "No uses markdown ni bloques de codigo. Solo devuelve JSON valido."
+    `Crea study cards. Pregunta: ${question}`,
+    `Tema: ${topic} Concepto: ${conceptTopic || topic}`,
+    `Relacionados: ${related} Conocidos: ${known}`,
+    "Incluye focusTrail de base a objetivo. Solo JSON, sin markdown."
   ].join(" ");
 }
 
 export const exerciseTutorPrompt =
-  "Genera una solucion guiada para un ejercicio de matematicas. " +
-  "Devuelve solo JSON valido con esta forma exacta: " +
+  "Genera solucion guiada paso a paso de matematicas. Devuelve solo JSON: " +
   '{"topic":"...","conceptTopic":"...","exercise":"...","steps":[{"title":"...","prompt":"...","acceptedAnswers":["..."],"hint":"...","explanation":"..."}],"finalReflection":"..."} ' +
-  "La solucion debe ser paso a paso y obligar al estudiante a completar pasos. " +
-  "Cada step debe pedir una accion concreta y tener 1 o mas acceptedAnswers cortas. " +
-  "Las acceptedAnswers deben ser razonables y directas. " +
-  "No regales toda la solucion en el primer paso. " +
-  "finalReflection debe invitar a comprobar la estrategia usada.";
+  "Cada step pide accion concreta con acceptedAnswers cortas. No regales la solucion. finalReflection invita a comprobar.";
 
 export function buildExerciseTutorUserPrompt({
   question,
@@ -172,32 +133,24 @@ export function buildExerciseTutorUserPrompt({
   const related = relatedTopics.length ? relatedTopics.join(", ") : "sin temas adicionales";
 
   return [
-    "Resuelve el ejercicio de forma guiada para que el estudiante complete pasos.",
-    `Pregunta original: ${question}`,
-    `Tema inmediato: ${topic}`,
-    `Concepto principal: ${conceptTopic || topic}`,
-    `Temas relacionados: ${related}`,
-    `Modo pedagogico: ${mode}`,
-    `Conceptos ya registrados: ${known}`,
-    "No uses markdown ni bloques de codigo. Solo devuelve JSON valido."
+    `Resuelve guiado. Pregunta: ${question}`,
+    `Tema: ${topic} Concepto: ${conceptTopic || topic}`,
+    `Relacionados: ${related} Modo: ${mode} Conocidos: ${known}`,
+    "Solo JSON, sin markdown."
   ].join(" ");
 }
 
 export const exerciseTracePrompt =
-  "Tu objetivo es crear una conversacion simulada invisible para el estudiante entre Student y Tutorbot para un problema de matematicas. " +
-  "Tutorbot divide el problema principal en subproblemas secuenciales, solo da pistas y simula multiples respuestas incorrectas del estudiante. " +
-  "Debes seguir estas funciones de Decision: a1,a2,a3,b1,b2,c1,c2,c3,d1,d2,e1,e2,f1,f2,g1,g2,h. " +
-  "Responde solo con JSON valido usando un arreglo de objetos con esta forma exacta: " +
+  "Crea conversacion simulada Student/Tutorbot para un problema de matematicas. " +
+  "Tutorbot divide en subproblemas, da pistas, simula errores del estudiante. " +
+  "Decisiones: a1,a2,a3,b1,b2,c1,c2,c3,d1,d2,e1,e2,f1,f2,g1,g2,h. Devuelve solo JSON: " +
   '[{"Student":"...","Thoughts":"...","Decision":"a1,a2","Subproblem":"...","Tutorbot":"..."}] ' +
-  "Genera entre 5 y 9 turnos, con varios errores del estudiante, y mantente siempre en matematicas. " +
-  "No uses markdown ni bloques de codigo.";
+  "5-9 turnos con errores del estudiante. Sin markdown.";
 
 export function buildExerciseTraceUserPrompt(problem, stepLimit = 4) {
   return [
-    "Ahora crea la conversacion simulada.",
-    `Question: ${problem}`,
-    `Limita la cantidad de subproblemas visibles a un maximo de ${stepLimit}.`,
-    "Incluye varias respuestas incorrectas, ambiguas o incompletas del estudiante para que Tutorbot tenga que corregir, aclarar y redirigir.",
-    "Recuerda que esto sera invisible para el estudiante pero se almacenara localmente."
+    `Crea la conversacion. Question: ${problem}`,
+    `Max ${stepLimit} subproblemas. Incluye respuestas incorrectas/ambiguas del estudiante.`,
+    "Invisible para el estudiante, almacenado localmente."
   ].join(" ");
 }

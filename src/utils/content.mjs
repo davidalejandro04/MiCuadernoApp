@@ -22,7 +22,7 @@ export function wrapStageHtml(rawHtml, lessonTitle, stageIndex, stageCount) {
     :root {
       color-scheme: light;
       --page: #f6f1e8;
-      --surface: rgba(255,253,248,0.96);
+      --surface: #fffdf8;
       --line: #e2ddcf;
       --text: #17313b;
       --muted: #5d7078;
@@ -32,9 +32,7 @@ export function wrapStageHtml(rawHtml, lessonTitle, stageIndex, stageCount) {
       margin: 0;
       font-family: "Trebuchet MS", "Segoe UI", sans-serif;
       color: var(--text);
-      background:
-        radial-gradient(circle at top right, rgba(98,203,255,0.16), transparent 30%),
-        linear-gradient(180deg, #f7f5ee 0%, var(--page) 100%);
+      background: var(--page);
       padding: 22px;
       line-height: 1.6;
     }
@@ -45,12 +43,12 @@ export function wrapStageHtml(rawHtml, lessonTitle, stageIndex, stageCount) {
       border: 1px solid var(--line);
       border-radius: 28px;
       overflow: hidden;
-      box-shadow: 0 24px 48px rgba(23, 49, 59, 0.12);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
     }
     .hero {
       padding: 24px 28px;
       border-bottom: 1px solid var(--line);
-      background: linear-gradient(135deg, rgba(88,204,2,0.18), rgba(98,203,255,0.14));
+      background: rgba(88, 204, 2, 0.08);
     }
     .pill {
       display: inline-flex;
@@ -129,16 +127,23 @@ export function wrapStageHtml(rawHtml, lessonTitle, stageIndex, stageCount) {
   </main>
   <script>
     document.addEventListener("DOMContentLoaded", function () {
-      if (window.renderMathInElement) {
-        renderMathInElement(document.body, {
-          delimiters: [
-            { left: "$$", right: "$$", display: true },
-            { left: "$", right: "$", display: false },
-            { left: "\\\\[", right: "\\\\]", display: true },
-            { left: "\\\\(", right: "\\\\)", display: false }
-          ],
-          throwOnError: false
-        });
+      function doRender() {
+        if (window.renderMathInElement) {
+          renderMathInElement(document.body, {
+            delimiters: [
+              { left: "$$", right: "$$", display: true },
+              { left: "$", right: "$", display: false },
+              { left: "\\\\[", right: "\\\\]", display: true },
+              { left: "\\\\(", right: "\\\\)", display: false }
+            ],
+            throwOnError: false
+          });
+        }
+      }
+      if (typeof requestIdleCallback === "function") {
+        requestIdleCallback(doRender);
+      } else {
+        setTimeout(doRender, 50);
       }
     });
   </script>

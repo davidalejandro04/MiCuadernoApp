@@ -10,7 +10,7 @@ pedagogical = necesita tutoria con pasos. direct_answer = respuesta simple. off_
 Ejemplo — "¿Cuanto es 5x3?" → {"route":"direct_answer","intent":"new_question","confidence":0.95,"requires_planner":false}
 Ejemplo — "Hola" → {"route":"chitchat","intent":"other","confidence":0.99,"requires_planner":false}`;
 
-export async function routerAgent({ message }, { askFn, maxTokens = 60 }) {
+export async function routerAgent({ message }, { askFn, maxTokens = 40 }) {
   const raw = await askFn(
     [
       { role: "system", content: SYSTEM_PROMPT },

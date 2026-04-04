@@ -199,12 +199,12 @@ async function startLlamaServer(ggufFile) {
   const args = [
     "-m", modelPath,
     "--port", String(LLM_PORT),
-    "-c", "2048",
+    "-c", "1024",
     "-ngl", "999",
     "--no-mmap",
     "-np", "1",
-    "-b", "256",
-    "-ub", "256",
+    "-b", "128",
+    "-ub", "128",
     "--reasoning", "off",
     "--reasoning-format", "none"
   ];
@@ -261,7 +261,7 @@ async function chatWithLlm({
     activeChatControllers.set(safeRequestId, controller);
   }
 
-  let numPredict = 512;
+  let numPredict = 384;
   let temp = 0.4;
   if (Number.isFinite(Number(maxTokens)) && Number(maxTokens) > 0) {
     numPredict = Math.round(Number(maxTokens));
@@ -383,7 +383,11 @@ async function bootstrap() {
   })();
 
   const lessonsPromise = getLessonCatalogModule()
-    .then(({ loadLessonCatalogFromDirectory }) => loadLessonCatalogFromDirectory(LESSON_CATALOG_DIR));
+    .then(({ loadLessonCatalogFromDirectory }) => loadLessonCatalogFromDirectory(LESSON_CATALOG_DIR))
+    .catch(err => {
+      console.error("[bootstrap] Lesson catalog failed:", err.message);
+      return [];
+    });
 
   const [llmStatus, lessons, profile, ggufModels] = await Promise.all([
     llmPromise,
@@ -413,10 +417,10 @@ async function bootstrap() {
 
 function createWindow() {
   const window = new BrowserWindow({
-    width: 1500,
-    height: 960,
-    minWidth: 1200,
-    minHeight: 760,
+    width: 1200,
+    height: 800,
+    minWidth: 900,
+    minHeight: 600,
     backgroundColor: "#f6f1e8",
     autoHideMenuBar: true,
     webPreferences: {
