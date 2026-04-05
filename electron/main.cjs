@@ -10,6 +10,7 @@ let llamaServerProc = null;
 
 const LLM_PORT = 8080;
 const LLM_BASE = `http://127.0.0.1:${LLM_PORT}`;
+const GGUF_SPLIT_RE = /^(.*)-(\d{5})-of-(\d{5})\.gguf$/i;
 
 let activeGguf = "gemma-4-E2B-it-Q4_K_M.gguf";
 
@@ -32,8 +33,9 @@ const APP_DATA_NAME = ".TutorMate";
 const DATA_DIR = path.join(app.getPath("appData"), APP_DATA_NAME);
 app.setPath("userData", DATA_DIR);
 
-const ROOT_DIR = path.join(__dirname, "..");
-const LESSON_CATALOG_DIR = path.join(ROOT_DIR, "data", "lesson-catalog");
+const APP_ROOT_DIR = path.join(__dirname, "..");
+const RUNTIME_ROOT_DIR = app.isPackaged ? process.resourcesPath : APP_ROOT_DIR;
+const LESSON_CATALOG_DIR = path.join(APP_ROOT_DIR, "data", "lesson-catalog");
 
 const DEFAULT_PROFILE = {
   name: "",
@@ -69,7 +71,7 @@ let machineId = null;
 
 function getLessonCatalogModule() {
   if (!lessonCatalogModulePromise) {
-    const moduleUrl = pathToFileURL(path.join(ROOT_DIR, "src", "utils", "lesson-catalog.mjs")).href;
+    const moduleUrl = pathToFileURL(path.join(APP_ROOT_DIR, "src", "utils", "lesson-catalog.mjs")).href;
     lessonCatalogModulePromise = import(moduleUrl);
   }
   return lessonCatalogModulePromise;
@@ -77,10 +79,68 @@ function getLessonCatalogModule() {
 
 function getRAGModule() {
   if (!ragModulePromise) {
-    const moduleUrl = pathToFileURL(path.join(ROOT_DIR, "src", "rag", "index.mjs")).href;
+    const moduleUrl = pathToFileURL(path.join(APP_ROOT_DIR, "src", "rag", "index.mjs")).href;
     ragModulePromise = import(moduleUrl);
   }
   return ragModulePromise;
+}
+
+function getModelsDir() {
+  return path.join(RUNTIME_ROOT_DIR, "models");
+}
+
+function getLlamaServerPath() {
+  return path.join(RUNTIME_ROOT_DIR, "bin", "llama-server.exe");
+}
+
+function parseSplitGguf(fileName) {
+  const match = GGUF_SPLIT_RE.exec(fileName);
+  if (!match) return null;
+  return {
+    prefix: match[1],
+    index: Number(match[2]),
+    count: Number(match[3])
+  };
+}
+
+function toLogicalGgufName(fileName) {
+  const split = parseSplitGguf(fileName);
+  return split ? `${split.prefix}.gguf` : fileName;
+}
+
+function isRunnableGguf(fileName) {
+  const split = parseSplitGguf(fileName);
+  return !split || split.index === 1;
+}
+
+function listRunnableModels(files) {
+  const models = [];
+  const seen = new Set();
+
+  for (const fileName of files.sort((a, b) => a.localeCompare(b))) {
+    if (!fileName.endsWith(".gguf") || fileName.toLowerCase().startsWith("mmproj")) continue;
+    if (!isRunnableGguf(fileName)) continue;
+
+    const logicalName = toLogicalGgufName(fileName);
+    if (seen.has(logicalName)) continue;
+    seen.add(logicalName);
+    models.push(logicalName);
+  }
+
+  return models;
+}
+
+function resolveRunnableModelFile(requestedGguf) {
+  const modelsDir = getModelsDir();
+  const files = fsSync.readdirSync(modelsDir).filter((fileName) => fileName.endsWith(".gguf"));
+
+  if (files.includes(requestedGguf)) {
+    return requestedGguf;
+  }
+
+  return files
+    .filter((fileName) => isRunnableGguf(fileName))
+    .find((fileName) => toLogicalGgufName(fileName) === requestedGguf) || null;
 }
 
 function userFile(name) {
@@ -154,17 +214,17 @@ async function writeJson(filePath, data) {
 }
 
 async function scanGgufModels() {
-  const modelsDir = path.join(ROOT_DIR, "models");
+  const modelsDir = getModelsDir();
   try {
     const files = await fs.readdir(modelsDir);
-    return files.filter(f => f.endsWith(".gguf") && !f.toLowerCase().startsWith("mmproj"));
+    return listRunnableModels(files);
   } catch {
     return [];
   }
 }
 
 function findMmprojFor(ggufFile) {
-  const modelsDir = path.join(ROOT_DIR, "models");
+  const modelsDir = getModelsDir();
   try {
     const files = fsSync.readdirSync(modelsDir);
     const mmprojFiles = files.filter(f => f.toLowerCase().startsWith("mmproj") && f.endsWith(".gguf"));
@@ -189,11 +249,17 @@ async function startLlamaServer(ggufFile) {
     await new Promise(r => { oldProc.on("close", r); setTimeout(r, 3000); });
   }
 
-  const exePath = path.join(ROOT_DIR, "bin", "llama-server.exe");
-  const modelPath = path.join(ROOT_DIR, "models", ggufFile);
+  const exePath = getLlamaServerPath();
+  const runnableGguf = resolveRunnableModelFile(ggufFile);
 
-  if (!fsSync.existsSync(modelPath)) {
+  if (!runnableGguf) {
     throw new Error(`Archivo de modelo no encontrado: ${ggufFile}`);
+  }
+
+  const modelPath = path.join(getModelsDir(), runnableGguf);
+
+  if (!fsSync.existsSync(exePath)) {
+    throw new Error("No se encontro llama-server.exe en la instalacion.");
   }
 
   const args = [
@@ -209,9 +275,9 @@ async function startLlamaServer(ggufFile) {
     "--reasoning-format", "none"
   ];
 
-  const mmprojFile = findMmprojFor(ggufFile);
+  const mmprojFile = findMmprojFor(runnableGguf);
   if (mmprojFile) {
-    args.push("--mmproj", path.join(ROOT_DIR, "models", mmprojFile));
+    args.push("--mmproj", path.join(getModelsDir(), mmprojFile));
   }
 
   llamaServerProc = spawn(exePath, args);
@@ -220,7 +286,7 @@ async function startLlamaServer(ggufFile) {
   llamaServerProc.on("close", code => console.log(`llama.cpp exited with code ${code}`));
 
   await waitForServer(45000);
-  activeGguf = ggufFile;
+  activeGguf = toLogicalGgufName(runnableGguf);
 }
 
 /**
@@ -430,7 +496,7 @@ function createWindow() {
     }
   });
 
-  window.loadFile(path.join(ROOT_DIR, "src", "index.html"));
+  window.loadFile(path.join(APP_ROOT_DIR, "src", "index.html"));
 }
 
 app.whenReady().then(() => {

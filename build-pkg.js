@@ -8,7 +8,7 @@ const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
 let changed = false;
 
 if (!pkg.scripts.build) {
-  pkg.scripts.build = 'electron-builder --config electron-builder.json';
+  pkg.scripts.build = 'node scripts/prepare-installer-resources.mjs && node scripts/run-electron-builder.mjs';
   changed = true;
 }
 if (!pkg.author) {

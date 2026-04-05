@@ -9,3 +9,10 @@ class_multiagent_tutoring_system.md
 /build
 /models/
 /bin/
+!/build/
+/build/*
+!/build/installer.nsh
+/dist-verify
+/dist-verify-gguf
+/dist-verify-split
+/dist-verify-web

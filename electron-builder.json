@@ -12,15 +12,29 @@
     "data/**/*",
     "package.json"
   ],
+  "extraResources": [
+    {
+      "from": "build/installer-resources/bin",
+      "to": "bin",
+      "filter": [
+        "llama-server.exe",
+        "**/*.dll"
+      ]
+    },
+    {
+      "from": "build/installer-resources/models",
+      "to": "models",
+      "filter": [
+        "**/*.gguf"
+      ]
+    }
+  ],
   "asar": true,
   "win": {
     "target": [
-      { "target": "nsis", "arch": ["x64"] }
+      { "target": "nsis-web", "arch": ["x64"] }
     ],
-    "icon": "build/icon.ico",
-    "extraFiles": [
-      { "from": "build/OllamaSetup.exe", "to": "OllamaSetup.exe" }
-    ]
+    "icon": "build/icon.ico"
   },
   "nsis": {
     "oneClick": false,
@@ -30,6 +44,21 @@
     "uninstallerIcon": "build/icon.ico",
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
-    "include": "build/installer.nsh"
+    "include": "build/installer.nsh",
+    "preCompressedFileExtensions": [
+      ".avi",
+      ".mov",
+      ".m4v",
+      ".mp4",
+      ".m4p",
+      ".qt",
+      ".mkv",
+      ".webm",
+      ".vmdk",
+      ".gguf"
+    ]
+  },
+  "nsisWeb": {
+    "appPackageUrl": "https://example.invalid/tutormate"
   }
 }
