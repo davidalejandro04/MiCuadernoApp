@@ -2318,11 +2318,6 @@ function renderOnboarding() {
       <div class="stepper">
         <span class="${step === 0 ? "active" : ""}"></span>
         <span class="${step === 1 ? "active" : ""}"></span>
-        <span class="${step === 2 ? "active" : ""}"></span>
-      </div>
-      <div>
-        <h2>¡Bienvenido a Mi cuaderno!</h2>
-        <p class="muted">Cuéntame un poco sobre ti para personalizar tu cuaderno.</p>
       </div>
       ${step === 0 ? `
         <input data-draft-field="name" value="${escapeHtml(draft.name || "")}" placeholder="Tu nombre o apodo" style="font-size:18px;padding:12px 16px;border-radius:14px;" />
@@ -2347,21 +2342,9 @@ function renderOnboarding() {
         ${renderGradeContentsPanel(displayGrade)}
         `;
       })() : ""}
-      ${step === 2 ? `
-        <div class="row">
-          ${["Aritmetica", "Geometria", "Fracciones", "Resolucion de problemas"].map((focus) => `
-            <button class="chip-btn ${draft.focusArea === focus ? "active" : ""}" data-action="choose-focus" data-value="${focus}">${focus}</button>
-          `).join("")}
-        </div>
-        <div class="row">
-          ${Object.entries(modeLabels).map(([key, label]) => `
-            <button class="chip-btn ${draft.responseMode === key ? "active" : ""}" data-action="choose-response-mode" data-value="${key}">${label}</button>
-          `).join("")}
-        </div>
-      ` : ""}
       <div class="row">
         <button class="btn secondary" data-action="onboarding-prev" ${step === 0 ? "disabled" : ""}>Atras</button>
-        ${step < 2
+        ${step < 1
           ? `<button class="btn primary" data-action="onboarding-next">Siguiente</button>`
           : `<button class="btn primary" data-action="save-profile">Guardar perfil</button>`}
       </div>
@@ -3780,7 +3763,7 @@ async function handleClick(event) {
   }
 
   if (action === "onboarding-next") {
-    state.onboardingStep = Math.min(2, state.onboardingStep + 1);
+    state.onboardingStep = Math.min(1, state.onboardingStep + 1);
   }
 
   if (action === "choose-avatar") {
