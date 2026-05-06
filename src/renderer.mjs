@@ -2267,6 +2267,48 @@ function renderProfilePage() {
   `;
 }
 
+function renderGradeContentsPanel(grade) {
+  const bandByGrade = { "3.o": "3", "5.o": "5" };
+  const band = bandByGrade[grade] || null;
+
+  if (!band) {
+    return `
+      <div class="grade-contents-panel">
+        <p class="muted" style="margin:0;">Aún no hay contenido para este curso.</p>
+      </div>
+    `;
+  }
+
+  const matches = (state.lessons || []).filter((unit) =>
+    Array.isArray(unit?.metadata?.gradeBands) && unit.metadata.gradeBands.includes(band)
+  );
+
+  const lessonCount = matches.reduce((sum, unit) => sum + (unit.lessons?.length || 0), 0);
+
+  const unitsHtml = matches.map((unit) => `
+    <li class="grade-contents-unit">
+      <div class="grade-contents-unit-title">${escapeHtml(unit.unit || "")}</div>
+      <ul class="grade-contents-lesson-list">
+        ${(unit.lessons || []).map((lesson) => `
+          <li>${escapeHtml(lesson.title || "")}</li>
+        `).join("")}
+      </ul>
+    </li>
+  `).join("");
+
+  return `
+    <div class="grade-contents-panel stack">
+      <div class="grade-contents-header">
+        <strong>Contenidos de ${escapeHtml(grade)}</strong>
+        <span class="muted">${matches.length} unidades · ${lessonCount} lecciones</span>
+      </div>
+      <ul class="grade-contents-list">
+        ${unitsHtml}
+      </ul>
+    </div>
+  `;
+}
+
 function renderOnboarding() {
   const draft = state.profileDraft;
   const step = state.onboardingStep;
@@ -2294,18 +2336,17 @@ function renderOnboarding() {
           `).join("")}
         </div>
       ` : ""}
-      ${step === 1 ? `
+      ${step === 1 ? (() => {
+        const displayGrade = draft.grade || "3.o";
+        return `
         <select data-draft-field="grade">
-          ${["3.o", "4.o", "5.o", "6.o", "Secundaria"].map((grade) => `
-            <option value="${grade}" ${draft.grade === grade ? "selected" : ""}>${grade}</option>
+          ${["3.o", "5.o"].map((grade) => `
+            <option value="${grade}" ${displayGrade === grade ? "selected" : ""}>${grade}</option>
           `).join("")}
         </select>
-        <div class="row">
-          ${[10, 20, 30].map((goal) => `
-            <button class="chip-btn ${Number(draft.dailyGoal) === goal ? "active" : ""}" data-action="choose-goal" data-value="${goal}">${goal} XP</button>
-          `).join("")}
-        </div>
-      ` : ""}
+        ${renderGradeContentsPanel(displayGrade)}
+        `;
+      })() : ""}
       ${step === 2 ? `
         <div class="row">
           ${["Aritmetica", "Geometria", "Fracciones", "Resolucion de problemas"].map((focus) => `
@@ -3428,6 +3469,9 @@ function handleInput(event) {
 
   if (target.dataset.draftField) {
     state.profileDraft = { ...state.profileDraft, [target.dataset.draftField]: target.value };
+    if (target.dataset.draftField === "grade") {
+      scheduleRender();
+    }
   }
 
   if (target.dataset.settingsField) {
@@ -3741,10 +3785,6 @@ async function handleClick(event) {
 
   if (action === "choose-avatar") {
     state.profileDraft = { ...state.profileDraft, avatar: button.dataset.value };
-  }
-
-  if (action === "choose-goal") {
-    state.profileDraft = { ...state.profileDraft, dailyGoal: Number(button.dataset.value) };
   }
 
   if (action === "choose-focus") {
