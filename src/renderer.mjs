@@ -1191,6 +1191,7 @@ function renderOpenNotebook() {
 
   return `
     <div class="app-shell-notebook">
+      ${renderAppSidebar()}
       <div class="book-scene">
         <!-- Navigation sidebar -->
         <nav class="nav-tabs-bar">
@@ -1237,6 +1238,60 @@ function renderOpenNotebook() {
         </div>
       </div>
     </div>
+  `;
+}
+
+function renderAppSidebar() {
+  const summary = currentSummary();
+  const completed = currentCompletedSet();
+  const ratio = completionRatio(state.lessons, completed);
+  const profileName = state.profile.name || summary.displayName || "Estudiante";
+  const navItems = [
+    { page: "home", icon: "IN", label: "Inicio" },
+    { page: "lessons", icon: "LE", label: "Lecciones" },
+    { page: "practice", icon: "ES", label: "Estudio" },
+    { page: "tracking", icon: "PR", label: "Progreso" },
+    { page: "profile", icon: "PF", label: "Perfil" }
+  ];
+
+  return `
+    <aside class="app-sidebar" aria-label="Navegacion principal">
+      <div class="sidebar-brand">
+        ${renderAnimalAvatar(getProfileAnimal(), "sm")}
+        <div class="sidebar-brand-copy">
+          <strong>Mi cuaderno</strong>
+          <span>${escapeHtml(profileName)}</span>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        ${navItems.map((item) => `
+          <button class="sidebar-nav-btn ${state.page === item.page ? "active" : ""}" data-action="nav" data-page="${item.page}" aria-current="${state.page === item.page ? "page" : "false"}">
+            <span class="sidebar-nav-icon" aria-hidden="true">${item.icon}</span>
+            <span>${item.label}</span>
+          </button>
+        `).join("")}
+        <button class="sidebar-nav-btn" data-action="open-settings">
+          <span class="sidebar-nav-icon" aria-hidden="true">AJ</span>
+          <span>Ajustes</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-summary" aria-label="Resumen del estudiante">
+        <div class="sidebar-summary-row">
+          <span>Nivel</span>
+          <strong>${summary.level}</strong>
+        </div>
+        <div class="sidebar-summary-row">
+          <span>XP</span>
+          <strong>${summary.xp}</strong>
+        </div>
+        <div class="sidebar-meter">
+          <span style="width:${ratio.total ? (ratio.done / ratio.total) * 100 : 0}%"></span>
+        </div>
+        <p>${ratio.done}/${ratio.total} lecciones completadas</p>
+      </div>
+    </aside>
   `;
 }
 
@@ -1432,7 +1487,7 @@ function renderLessonTrail(lessons, completed, next) {
       const key = `${lesson.unit}::${lesson.title}`;
       const isDone = completed.has(key);
       const isCurrent = next && next.unit === lesson.unit && next.title === lesson.title;
-      const status = isDone ? "done" : isCurrent ? "current" : "locked";
+      const status = isDone ? "done" : isCurrent ? "current" : "upcoming";
       const globalIdx = state.bookPage * LESSONS_PER_SPREAD + i;
       const pos = nodePositions[i] || nodePositions[0];
       const showMascot = i === mascotIdx;
@@ -1502,7 +1557,7 @@ function renderReaderRightPage() {
       <iframe id="lesson-frame" title="Leccion" data-srcdoc="${encodeURIComponent(iframeHtml)}"></iframe>
       <div class="lesson-overlay" id="lesson-overlay">${renderLessonOverlay()}</div>
     </div>
-    <div class="row" style="margin-top:8px;justify-content:space-between;">
+    <div class="row reader-nav-row">
       <button class="book-nav-btn" data-action="lesson-prev" ${state.stageIndex === 0 ? "disabled" : ""} style="width:40px;height:40px;font-size:16px;">◀</button>
       ${state.stageIndex < stages.length - 1
         ? `<button class="btn primary" data-action="lesson-next" style="flex:1;margin:0 8px;">Siguiente etapa</button>`

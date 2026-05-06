@@ -1,6 +1,6 @@
 import { safeParseAgentJson } from "./agent-utils.mjs";
 
-const SYSTEM_PROMPT = `Planificador de tutoria matematica. Descompone preguntas en 2-3 subproblemas (facil→dificil).
+const SYSTEM_PROMPT = `Planificador de tutoria matematica. Descompone preguntas en 2-3 subproblemas (facil->dificil).
 Solo JSON valido:
 {"learning_objective":"...","main_problem":"...","subproblems":[{"id":"sp1","prompt":"...","expected_answer":"corta","hint_ladder":["general","especifica","La respuesta es: X"],"common_misconceptions":["error"]}]}
 Reglas: 2-3 subproblemas, respuestas cortas, 3 pistas (la 3a empieza con "La respuesta es:").`;
